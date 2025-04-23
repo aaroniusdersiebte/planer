@@ -15,6 +15,7 @@ export const useAppStore = create((set, get) => ({
   selectedTaskId: null,
   searchQuery: '',
   focusModeActive: false,
+  focusModeMinimized: false, // Neuer State für minimierten Fokus-Modus
   focusTask: null,
   focusTimer: {
     duration: 20 * 60, // 20 Minuten in Sekunden
@@ -31,7 +32,33 @@ export const useAppStore = create((set, get) => ({
       const notes = await window.electron.getData('notes') || [];
       const archivedTasks = await window.electron.getData('archivedTasks') || [];
 
-      set({ groups, tasks, tags, notes, archivedTasks });
+      // Migriere alte Tasks zu neuem Format mit Beschreibungseinträgen
+      const migratedTasks = tasks.map(task => {
+        // Wenn die Aufgabe bereits das neue Format hat, keine Änderung
+        if (task.descriptionEntries) return task;
+        
+        // Alte Beschreibung in einen Eintrag umwandeln, falls vorhanden
+        const descriptionEntries = task.description
+          ? [
+              {
+                id: nanoid(),
+                text: task.description,
+                createdAt: task.createdAt,
+                editedAt: null
+              }
+            ]
+          : [];
+        
+        // Neues Format zurückgeben
+        return {
+          ...task,
+          descriptionEntries,
+          // Alte Beschreibung wird zur Kompatibilität beibehalten
+          description: task.description || ''
+        };
+      });
+
+      set({ groups, tasks: migratedTasks, tags, notes, archivedTasks });
     } catch (error) {
       console.error('Fehler beim Laden der Daten:', error);
       // Fallback auf leere Arrays, um App-Abstürze zu vermeiden
@@ -116,7 +143,8 @@ export const useAppStore = create((set, get) => ({
     const newTask = {
       id: nanoid(),
       title,
-      description: '',
+      description: '', // Bleibt für Kompatibilität
+      descriptionEntries: [], // Neues Array für Beschreibungseinträge
       groupId,
       completed: false,
       subtasks: [],
@@ -129,6 +157,34 @@ export const useAppStore = create((set, get) => ({
       const newTasks = [...state.tasks, newTask];
       window.electron.saveData('tasks', newTasks);
       return { tasks: newTasks };
+    });
+  },
+
+  // Neuer Eintrag für Beschreibungen
+  addDescriptionEntry: (taskId, text) => {
+    const newEntry = {
+      id: nanoid(),
+      text,
+      createdAt: new Date().toISOString(),
+      editedAt: null
+    };
+
+    set((state) => {
+      const updatedTasks = state.tasks.map((task) => {
+        if (task.id === taskId) {
+          // Sorge dafür, dass descriptionEntries auf jeden Fall ein Array ist
+          const descriptionEntries = task.descriptionEntries || [];
+          // Füge den neuen Eintrag am Anfang hinzu (neueste zuerst)
+          return { 
+            ...task, 
+            descriptionEntries: [newEntry, ...descriptionEntries]
+          };
+        }
+        return task;
+      });
+      
+      window.electron.saveData('tasks', updatedTasks);
+      return { tasks: updatedTasks };
     });
   },
 
@@ -221,6 +277,24 @@ export const useAppStore = create((set, get) => ({
             (subtask) => subtask.id !== subtaskId
           );
           return { ...task, subtasks: updatedSubtasks };
+        }
+        return task;
+      });
+      
+      window.electron.saveData('tasks', updatedTasks);
+      return { tasks: updatedTasks };
+    });
+  },
+
+  // Unteraufgaben per Drag & Drop sortieren
+  moveSubtask: (taskId, subtaskId, sourceIndex, destIndex) => {
+    set((state) => {
+      const updatedTasks = state.tasks.map((task) => {
+        if (task.id === taskId) {
+          const subtasks = [...task.subtasks];
+          const [removed] = subtasks.splice(sourceIndex, 1);
+          subtasks.splice(destIndex, 0, removed);
+          return { ...task, subtasks };
         }
         return task;
       });
@@ -348,11 +422,20 @@ export const useAppStore = create((set, get) => ({
       const note = state.notes.find(n => n.id === noteId);
       if (!note) return state;
 
+      // Beschreibungseintrag erstellen
+      const descriptionEntry = {
+        id: nanoid(),
+        text: note.content || '',
+        createdAt: new Date().toISOString(),
+        editedAt: null
+      };
+
       // Neue Task erstellen
       const newTask = {
         id: nanoid(),
         title: note.title || 'Neue Aufgabe',
-        description: note.content || '',
+        description: note.content || '', // Für Kompatibilität
+        descriptionEntries: note.content ? [descriptionEntry] : [], // Neues Format
         groupId,
         completed: false,
         subtasks: [],
@@ -375,64 +458,90 @@ export const useAppStore = create((set, get) => ({
     });
   },
 
-
-// Fokus-Modus Funktionen
-startFocusMode: (taskId) => {
-  // Wenn kein taskId übergeben wurde, öffne den Fokus-Modus für Notizenerstellung
-  if (!taskId) {
-    set({
-      focusModeActive: true,
-      focusTask: null,
-      focusTimer: {
-        duration: 20 * 60, // 20 Minuten in Sekunden
-        timeLeft: 20 * 60,
-        isRunning: false
-      }
-    });
-    return;
-  }
-  
-  // Wenn es eine Notiz ist (Format: "note-[id]")
-  if (taskId.startsWith('note-')) {
-    const noteId = taskId.replace('note-', '');
-    const note = get().notes.find(n => n.id === noteId);
-    
-    if (note) {
+  // Fokus-Modus Funktionen
+  startFocusMode: (taskId) => {
+    // Wenn kein taskId übergeben wurde, öffne den Fokus-Modus für Notizenerstellung
+    if (!taskId) {
       set({
         focusModeActive: true,
-        focusTask: { id: taskId },
+        focusModeMinimized: false,
+        focusTask: null,
         focusTimer: {
           duration: 20 * 60, // 20 Minuten in Sekunden
           timeLeft: 20 * 60,
-          isRunning: true
+          isRunning: false
         }
       });
       return;
     }
-  }
-
-  // Normale Aufgabe
-  const task = get().tasks.find(t => t.id === taskId);
-  if (!task) return;
-
-  set({
-    focusModeActive: true,
-    focusTask: task,
-    focusTimer: {
-      duration: 20 * 60, // 20 Minuten in Sekunden
-      timeLeft: 20 * 60,
-      isRunning: true
+    
+    // Wenn es eine Notiz ist (Format: "note-[id]")
+    if (taskId.startsWith('note-')) {
+      const noteId = taskId.replace('note-', '');
+      const note = get().notes.find(n => n.id === noteId);
+      
+      if (note) {
+        set({
+          focusModeActive: true,
+          focusModeMinimized: false,
+          focusTask: { id: taskId },
+          focusTimer: {
+            duration: 20 * 60, // 20 Minuten in Sekunden
+            timeLeft: 20 * 60,
+            isRunning: true
+          }
+        });
+        return;
+      }
     }
-  });
-},
+
+    // Normale Aufgabe
+    const task = get().tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    set({
+      focusModeActive: true,
+      focusModeMinimized: false,
+      focusTask: task,
+      focusTimer: {
+        duration: 20 * 60, // 20 Minuten in Sekunden
+        timeLeft: 20 * 60,
+        isRunning: true
+      }
+    });
+  },
 
   stopFocusMode: () => {
     set({
       focusModeActive: false,
+      focusModeMinimized: false,
       focusTask: null,
       focusTimer: {
         ...get().focusTimer,
         isRunning: false
+      }
+    });
+  },
+
+  // Neuer minimierter Modus
+  minimizeFocusMode: () => {
+    set({
+      focusModeMinimized: true,
+      focusTimer: {
+        ...get().focusTimer,
+        isRunning: false // Timer pausieren
+      }
+    });
+  },
+
+  // Fokus-Modus wiederherstellen
+  restoreFocusMode: () => {
+    set({
+      focusModeMinimized: false,
+      // Timer automatisch fortsetzen, wenn Fokus-Modus wiederhergestellt wird
+      focusTimer: {
+        ...get().focusTimer,
+        isRunning: true
       }
     });
   },

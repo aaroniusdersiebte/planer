@@ -1,42 +1,75 @@
 // src/components/focus/FocusMode.jsx
-import React, { useState, useEffect, useRef } from 'react';
-import { FiX, FiClock, FiPlus, FiCheck, FiFolder, FiEdit, FiPause, FiPlay } from 'react-icons/fi';
+import React, { useState, useEffect, useCallback } from 'react';
+import { FiX, FiClock, FiPlus, FiCheck, FiFolder, FiEdit, FiPause, FiPlay, FiSave, FiMinimize2 } from 'react-icons/fi';
 import { useAppStore } from '../../store/appStore';
-import FocusSubtaskList from './FocusSubtaskList';
+import SubtaskDraggableList from '../tasks/SubtaskDraggableList';
 import TagManager from '../tags/TagManager';
 import NoteModal from '../notes/NoteModal';
 
 function FocusMode() {
-  // Store-Zugriff
+  // Store-Zugriff mit direktem Zugriff auf die aktuelle Note/Task
   const { 
-    focusTask, 
+    focusTask: focusTaskRef, // Wir verwenden diese nur als Referenz
     stopFocusMode, 
+    minimizeFocusMode,
     focusTimer, 
     updateFocusTimer,
     extendFocusTimer,
     updateTask,
     completeTask,
     groups,
-    addSubtask,
-    notes
+    notes,
+    addDescriptionEntry,
+    tasks
   } = useAppStore();
-
+  
   // Lokaler State
   const [timerIntervalId, setTimerIntervalId] = useState(null);
   const [customDuration, setCustomDuration] = useState(20);
-  const [description, setDescription] = useState('');
+  const [newDescription, setNewDescription] = useState('');
   const [showGroupSelect, setShowGroupSelect] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id || null);
-  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [showNoteModal, setShowNoteModal] = useState(false);
-  const [showSeconds, setShowSeconds] = useState(true); // Neuer State für Sekunden-Anzeige
+  const [showSeconds, setShowSeconds] = useState(true);
+  const [editingEntryId, setEditingEntryId] = useState(null);
+  const [editingEntryText, setEditingEntryText] = useState('');
 
-  // Beschreibung aus der Aufgabe laden, wenn sich der Fokus ändert
-  useEffect(() => {
-    if (focusTask && !focusTask.id?.startsWith('note-')) {
-      setDescription(focusTask.description || '');
+  // Hier holen wir immer die aktuelle Version der Aufgabe/Notiz aus dem Store
+  const getCurrentFocusTask = useCallback(() => {
+    if (!focusTaskRef) return null;
+    
+    // Wenn es eine Notiz ist (Format: "note-[id]")
+    if (focusTaskRef.id?.startsWith('note-')) {
+      const noteId = focusTaskRef.id.replace('note-', '');
+      const note = notes.find(n => n.id === noteId);
+      
+      if (note) {
+        return { 
+          id: focusTaskRef.id,
+          isNote: true,
+          data: note
+        };
+      }
+      return null;
     }
-  }, [focusTask]);
+    
+    // Normale Aufgabe
+    const task = tasks.find(t => t.id === focusTaskRef.id);
+    if (task) {
+      return {
+        id: task.id,
+        isNote: false,
+        data: task
+      };
+    }
+    
+    return null;
+  }, [focusTaskRef, notes, tasks]);
+  
+  // Aktuelle Fokus-Aufgabe/Notiz
+  const currentFocusTask = getCurrentFocusTask();
+  const isNote = currentFocusTask?.isNote || false;
+  const focusTask = currentFocusTask?.data || null;
 
   // Timer-Cleanup
   useEffect(() => {
@@ -101,7 +134,7 @@ function FocusMode() {
   // Status-Klasse für Button-Hervorhebung
   const getSecButtonClass = () => {
     return showSeconds 
-      ? "bg-orange-600 hover:bg-orange-700 text-white" 
+      ? "bg-gray-600 text-white" 
       : "bg-gray-700 hover:bg-gray-600 text-white";
   };
 
@@ -131,23 +164,48 @@ function FocusMode() {
     window.electron.hapticFeedback();
   };
 
-  const handleSaveDescription = () => {
-    if (focusTask && !focusTask.id?.startsWith('note-')) {
-      updateTask(focusTask.id, { description });
+  const handleAddDescription = () => {
+    if (newDescription.trim() && focusTask && !isNote) {
+      addDescriptionEntry(focusTask.id, newDescription.trim());
+      setNewDescription('');
       window.electron.hapticFeedback();
     }
   };
 
-  const handleAddSubtask = () => {
-    if (newSubtaskTitle.trim() && focusTask && !focusTask.id?.startsWith('note-')) {
-      addSubtask(focusTask.id, newSubtaskTitle.trim());
-      setNewSubtaskTitle('');
+  const handleDescriptionKeyDown = (e) => {
+    if (e.key === 'Enter' && e.ctrlKey) {
+      handleAddDescription();
+    }
+  };
+
+  const handleEditEntry = (entry) => {
+    setEditingEntryId(entry.id);
+    setEditingEntryText(entry.text);
+  };
+
+  const handleSaveEditedEntry = () => {
+    if (editingEntryText.trim() && focusTask && !isNote) {
+      updateTask(focusTask.id, {
+        descriptionEntries: focusTask.descriptionEntries.map(entry => 
+          entry.id === editingEntryId 
+            ? { ...entry, text: editingEntryText, editedAt: new Date().toISOString() } 
+            : entry
+        )
+      });
+      
+      setEditingEntryId(null);
+      setEditingEntryText('');
       window.electron.hapticFeedback();
     }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingEntryId(null);
+    setEditingEntryText('');
   };
 
   const handleCompleteTask = () => {
-    if (focusTask && !focusTask.id?.startsWith('note-')) {
+    if (focusTask && !isNote) {
       completeTask(focusTask.id);
       stopFocusMode();
       window.electron.hapticFeedback();
@@ -156,9 +214,9 @@ function FocusMode() {
 
   const handleMoveToGroup = () => {
     if (selectedGroupId && focusTask) {
-      if (focusTask.id?.startsWith('note-')) {
+      if (isNote) {
         // Konvertiere Notiz zu Aufgabe
-        const noteId = focusTask.id.replace('note-', '');
+        const noteId = currentFocusTask.id.replace('note-', '');
         const { convertNoteToTask } = useAppStore.getState();
         convertNoteToTask(noteId, selectedGroupId);
         stopFocusMode();
@@ -171,9 +229,23 @@ function FocusMode() {
     }
   };
 
-  // Prüfen, ob wir eine Notiz oder eine Aufgabe haben
-  const isNote = focusTask?.id?.startsWith('note-');
-  const note = isNote ? notes.find(n => n.id === focusTask.id.replace('note-', '')) : null;
+  const handleMinimize = () => {
+    // Timer pausieren und Fokus-Modus minimieren
+    updateFocusTimer({ isRunning: false });
+    minimizeFocusMode();
+    window.electron.hapticFeedback();
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('de-DE', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   // Wenn keine Aufgabe im Fokus ist, zeige das Popup oder eine einfache Anzeige an
   if (!focusTask) {
@@ -183,12 +255,23 @@ function FocusMode() {
         <div className="p-4 border-b border-gray-700 flex justify-between items-center">
           <h1 className="text-xl font-semibold text-white">Fokus-Modus</h1>
           
-          <button
-            className="text-gray-400 hover:text-white p-1"
-            onClick={stopFocusMode}
-          >
-            <FiX size={24} />
-          </button>
+          <div className="flex items-center">
+            <button
+              className="text-gray-400 hover:text-white p-1 mr-2"
+              onClick={handleMinimize}
+              title="Minimieren"
+            >
+              <FiMinimize2 size={20} />
+            </button>
+            
+            <button
+              className="text-gray-400 hover:text-white p-1"
+              onClick={stopFocusMode}
+              title="Schließen"
+            >
+              <FiX size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 flex items-center justify-center">
@@ -231,21 +314,29 @@ function FocusMode() {
       <div className="p-4 border-b border-gray-700 flex justify-between items-center">
         <h1 className="text-xl font-semibold text-white">Fokus-Modus</h1>
         
-        <button
-          className="text-gray-400 hover:text-white p-1"
-          onClick={() => {
-            if (!isNote) handleSaveDescription();
-            stopFocusMode();
-          }}
-        >
-          <FiX size={24} />
-        </button>
+        <div className="flex items-center">
+          <button
+            className="text-gray-400 hover:text-white p-1 mr-2"
+            onClick={handleMinimize}
+            title="Minimieren"
+          >
+            <FiMinimize2 size={20} />
+          </button>
+          
+          <button
+            className="text-gray-400 hover:text-white p-1"
+            onClick={stopFocusMode}
+            title="Schließen"
+          >
+            <FiX size={20} />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto flex flex-col items-center p-6">
         {/* Aufgaben-/Notiztitel */}
         <h2 className="text-2xl font-bold text-white mb-8 text-center">
-          {isNote ? note?.title || 'Notiz' : focusTask.title}
+          {isNote ? focusTask.title || 'Notiz' : focusTask.title}
         </h2>
 
         {/* Timer-Einstellung */}
@@ -270,7 +361,7 @@ function FocusMode() {
             </button>
           </div>
 
-          {/* Neuer kreisförmiger Timer */}
+          {/* Kreisförmiger Timer */}
           <div className="flex flex-col items-center justify-center mb-4">
             <div className="relative w-36 h-36 flex items-center justify-center">
               {/* Hintergrundkreis */}
@@ -333,47 +424,116 @@ function FocusMode() {
 
         {/* Aufgaben-/Notizdetails */}
         <div className="bg-gray-800 rounded-lg p-4 w-full max-w-2xl mb-6">
-          {/* Beschreibung */}
-          <h3 className="text-lg font-medium text-white mb-2">Beschreibung</h3>
-          <textarea
-            className="w-full bg-gray-700 text-white p-3 rounded resize-none outline-none mb-4"
-            placeholder="Beschreibung hinzufügen..."
-            value={isNote ? note?.content || '' : description}
-            onChange={(e) => isNote ? null : setDescription(e.target.value)}
-            onBlur={isNote ? null : handleSaveDescription}
-            rows={5}
-            readOnly={isNote} // Nur lesbar für Notizen
-          />
+          {/* Neue Notiz hinzufügen (für Aufgaben) */}
+          {!isNote && (
+            <div className="mb-4">
+              <h3 className="text-lg font-medium text-white mb-2">Neue Notiz hinzufügen</h3>
+              <div className="flex items-start">
+                <textarea
+                  className="flex-1 bg-gray-700 text-white p-3 rounded resize-none outline-none min-h-[60px]"
+                  placeholder="Neue Notiz hinzufügen... (Strg+Enter)"
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  onKeyDown={handleDescriptionKeyDown}
+                  rows={2}
+                />
+                <button
+                  className="ml-2 bg-orange-600 hover:bg-orange-700 text-white p-2 rounded h-[60px] w-[60px] flex items-center justify-center"
+                  onClick={handleAddDescription}
+                  disabled={!newDescription.trim()}
+                >
+                  <FiSave size={20} />
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Strg+Enter</p>
+            </div>
+          )}
+
+          {/* Bestehende Notizen für Aufgaben */}
+          {!isNote && focusTask.descriptionEntries && focusTask.descriptionEntries.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-lg font-medium text-white mb-2">Notizen</h3>
+              <div className="space-y-3">
+                {focusTask.descriptionEntries.map((entry) => (
+                  <div key={entry.id} className="bg-gray-700 rounded p-3 relative">
+                    {editingEntryId === entry.id ? (
+                      <div>
+                        <textarea
+                          className="w-full bg-gray-600 text-white p-2 rounded resize-none outline-none mb-2"
+                          value={editingEntryText}
+                          onChange={(e) => setEditingEntryText(e.target.value)}
+                          rows={3}
+                          autoFocus
+                        />
+                        <div className="flex justify-end space-x-2">
+                          <button
+                            className="text-gray-400 hover:text-gray-300 text-sm"
+                            onClick={handleCancelEdit}
+                          >
+                            Abbrechen
+                          </button>
+                          <button
+                            className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-sm"
+                            onClick={handleSaveEditedEntry}
+                          >
+                            Speichern
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div 
+                          className="whitespace-pre-wrap text-white cursor-pointer" 
+                          onClick={() => handleEditEntry(entry)}
+                        >
+                          {entry.text}
+                        </div>
+                        <div className="flex justify-between mt-2 text-xs text-gray-500">
+                          <span>
+                            {formatDate(entry.createdAt)}
+                            {entry.editedAt && entry.editedAt !== entry.createdAt && " (bearbeitet)"}
+                          </span>
+                          <button
+                            className="text-gray-400 hover:text-orange-400"
+                            onClick={() => handleEditEntry(entry)}
+                          >
+                            <FiEdit size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Notizinhalt (für Notizen) */}
+          {isNote && (
+            <div className="mb-4">
+              <h3 className="text-lg font-medium text-white mb-2">Inhalt</h3>
+              <textarea
+                className="w-full bg-gray-700 text-white p-3 rounded resize-none outline-none cursor-pointer"
+                placeholder="Notiz hinzufügen..."
+                value={focusTask.content || ''}
+                readOnly={true}
+                rows={5}
+                onClick={() => {
+                  // Würde hier die Bearbeitung aktivieren, wenn es möglich wäre
+                  // In der aktuellen Struktur können wir nur in der Notizen-Übersicht bearbeiten
+                }}
+              />
+            </div>
+          )}
 
           {/* Unteraufgaben (nur für Tasks, nicht für Notizen) */}
           {!isNote && (
             <>
               <h3 className="text-lg font-medium text-white mb-2">Unteraufgaben</h3>
               <div className="bg-gray-700 p-3 rounded mb-4">
-                <div className="space-y-2">
-                  {/* Live-Update der Unteraufgaben aus dem Store */}
-                  <FocusSubtaskList taskId={focusTask.id} />
-                  
-                  {/* Neue Unteraufgabe hinzufügen */}
-                  <div className="flex mt-2">
-                    <input
-                      type="text"
-                      className="bg-gray-600 text-white px-2 py-1 text-sm rounded-l outline-none flex-1"
-                      placeholder="Neue Unteraufgabe"
-                      value={newSubtaskTitle}
-                      onChange={(e) => setNewSubtaskTitle(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleAddSubtask();
-                      }}
-                    />
-                    <button
-                      className="bg-orange-600 hover:bg-orange-700 text-white px-2 py-1 text-sm rounded-r"
-                      onClick={handleAddSubtask}
-                    >
-                      <FiPlus size={14} />
-                    </button>
-                  </div>
-                </div>
+                {focusTask && (
+                  <SubtaskDraggableList taskId={focusTask.id} />
+                )}
               </div>
             </>
           )}

@@ -7,7 +7,9 @@ import {
   FiChevronDown, 
   FiChevronUp,
   FiEdit,
-  FiTrash2
+  FiTrash2,
+  FiSave,
+  FiMessageSquare
 } from 'react-icons/fi';
 import { useAppStore } from '../../store/appStore';
 import SubtaskList from './SubtaskList';
@@ -20,12 +22,16 @@ function Task({ task, index, trelloView }) {
     deleteTask,
     startFocusMode,
     groups,
-    tags
+    tags,
+    addDescriptionEntry
   } = useAppStore();
   
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
+  const [newDescription, setNewDescription] = useState('');
+  const [editingEntryId, setEditingEntryId] = useState(null);
+  const [editingEntryText, setEditingEntryText] = useState('');
 
   // Finde die Gruppenbezeichnung
   const group = groups.find(g => g.id === task.groupId);
@@ -77,6 +83,57 @@ function Task({ task, index, trelloView }) {
       setTitle(task.title);
       setEditing(false);
     }
+  };
+
+  const handleAddDescription = () => {
+    if (newDescription.trim()) {
+      addDescriptionEntry(task.id, newDescription.trim());
+      setNewDescription('');
+      window.electron.hapticFeedback();
+    }
+  };
+
+  const handleDescriptionKeyDown = (e) => {
+    if (e.key === 'Enter' && e.ctrlKey) {
+      handleAddDescription();
+    }
+  };
+
+  const handleEditEntry = (entry) => {
+    setEditingEntryId(entry.id);
+    setEditingEntryText(entry.text);
+  };
+
+  const handleSaveEditedEntry = () => {
+    if (editingEntryText.trim()) {
+      updateTask(task.id, {
+        descriptionEntries: task.descriptionEntries.map(entry => 
+          entry.id === editingEntryId 
+            ? { ...entry, text: editingEntryText, editedAt: new Date().toISOString() } 
+            : entry
+        )
+      });
+      
+      setEditingEntryId(null);
+      setEditingEntryText('');
+      window.electron.hapticFeedback();
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingEntryId(null);
+    setEditingEntryText('');
+  };
+
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('de-DE', { 
+      day: '2-digit', 
+      month: '2-digit', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   // Unterschiedliches Layout für Trello-Ansicht
@@ -140,9 +197,11 @@ function Task({ task, index, trelloView }) {
                 </div>
               )}
 
-              {task.description && (
-                <div className="text-xs text-gray-400 mb-2 line-clamp-2">
-                  {task.description}
+              {/* Anzahl der Notizen anzeigen */}
+              {task.descriptionEntries && task.descriptionEntries.length > 0 && (
+                <div className="flex items-center text-xs text-gray-400 mb-2">
+                  <FiMessageSquare size={12} className="mr-1" />
+                  <span>{task.descriptionEntries.length} Notizen</span>
                 </div>
               )}
 
@@ -269,28 +328,97 @@ function Task({ task, index, trelloView }) {
 
           {expanded && (
             <div className="px-3 pb-3 border-t border-gray-700 pt-2">
-              {/* Beschreibung */}
-              <div className="mb-3">
-                <textarea
-                  className="w-full bg-gray-700 text-white p-2 rounded resize-none outline-none"
-                  placeholder="Beschreibung hinzufügen..."
-                  value={task.description}
-                  onChange={(e) => 
-                    updateTask(task.id, { description: e.target.value })
-                  }
-                  rows={3}
-                  onClick={(e) => e.stopPropagation()}
-                />
+              {/* Neue Notiz hinzufügen */}
+              <div className="mb-4" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-sm font-medium text-gray-300 mb-2">Neue Notiz hinzufügen</h3>
+                <div className="flex items-start mb-1">
+                  <textarea
+                    className="flex-1 bg-gray-700 text-white p-2 rounded resize-none outline-none min-h-[60px]"
+                    placeholder="Notiz hinzufügen... (Strg+Enter)"
+                    value={newDescription}
+                    onChange={(e) => setNewDescription(e.target.value)}
+                    onKeyDown={handleDescriptionKeyDown}
+                    rows={2}
+                  />
+                  <button
+                    className="ml-2 bg-orange-600 hover:bg-orange-700 text-white p-2 rounded h-[60px] w-[60px] flex items-center justify-center"
+                    onClick={handleAddDescription}
+                    disabled={!newDescription.trim()}
+                  >
+                    <FiSave size={20} />
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500">Strg+Enter</p>
               </div>
 
+              {/* Bestehende Notizen */}
+              {task.descriptionEntries && task.descriptionEntries.length > 0 && (
+                <div className="mb-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="text-sm font-medium text-gray-300 mb-1">Notizen</h3>
+                  
+                  {task.descriptionEntries.map((entry) => (
+                    <div key={entry.id} className="bg-gray-700 rounded p-3 relative">
+                      {editingEntryId === entry.id ? (
+                        <div>
+                          <textarea
+                            className="w-full bg-gray-600 text-white p-2 rounded resize-none outline-none mb-2"
+                            value={editingEntryText}
+                            onChange={(e) => setEditingEntryText(e.target.value)}
+                            rows={3}
+                            autoFocus
+                          />
+                          <div className="flex justify-end space-x-2">
+                            <button
+                              className="text-gray-400 hover:text-gray-300 text-sm"
+                              onClick={handleCancelEdit}
+                            >
+                              Abbrechen
+                            </button>
+                            <button
+                              className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-sm"
+                              onClick={handleSaveEditedEntry}
+                            >
+                              Speichern
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div 
+                            className="whitespace-pre-wrap text-white cursor-pointer"
+                            onClick={() => handleEditEntry(entry)}
+                          >
+                            {entry.text}
+                          </div>
+                          <div className="flex justify-between mt-2 text-xs text-gray-500">
+                            <span>
+                              {formatDate(entry.createdAt)}
+                              {entry.editedAt && entry.editedAt !== entry.createdAt && " (bearbeitet)"}
+                            </span>
+                            <button
+                              className="text-gray-400 hover:text-orange-400"
+                              onClick={() => handleEditEntry(entry)}
+                            >
+                              <FiEdit size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Unteraufgaben */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-300 mb-2">Unteraufgaben</h4>
+              <div onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-sm font-medium text-gray-300 mb-2">Unteraufgaben</h3>
                 <SubtaskList taskId={task.id} subtasks={task.subtasks} />
               </div>
 
               {/* Tags */}
-              <TagManager taskId={task.id} />
+              <div className="mt-4" onClick={(e) => e.stopPropagation()}>
+                <TagManager taskId={task.id} />
+              </div>
             </div>
           )}
         </div>

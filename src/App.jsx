@@ -4,6 +4,7 @@ import { DragDropContext } from 'react-beautiful-dnd';
 import Sidebar from './components/sidebar/Sidebar';
 import MainContent from './components/MainContent';
 import FocusMode from './components/focus/FocusMode';
+import MinimizedFocus from './components/focus/MinimizedFocus';
 import { useAppStore } from './store/appStore';
 import './styles/tailwind.css';
 
@@ -13,7 +14,10 @@ function App() {
     initializeData, 
     moveTask, 
     moveGroup,
-    focusModeActive
+    focusModeActive,
+    focusModeMinimized,
+    restoreFocusMode,
+    moveSubtask
   } = useAppStore();
 
   // Daten beim App-Start laden
@@ -43,6 +47,17 @@ function App() {
     return;
   }
 
+  // Wenn eine Unteraufgabe verschoben wurde
+  if (type === 'subtask') {
+    moveSubtask(
+      source.droppableId, // taskId
+      draggableId,        // subtaskId
+      source.index,
+      destination.index
+    );
+    return;
+  }
+
   // Task verschieben
   moveTask(
     draggableId,
@@ -52,6 +67,7 @@ function App() {
     destination.index
   );
 };
+
   return (
     <div className="flex h-screen bg-gray-900 text-gray-100">
       {/* Seitenleiste */}
@@ -59,12 +75,17 @@ function App() {
 
       {/* Hauptinhalt mit Drag & Drop Kontext */}
       <DragDropContext onDragEnd={handleDragEnd}>
-        {focusModeActive ? (
+        {focusModeActive && !focusModeMinimized ? (
           <FocusMode />
         ) : (
           <MainContent view={view} />
         )}
       </DragDropContext>
+
+      {/* Minimierter Fokus-Modus */}
+      {focusModeActive && focusModeMinimized && (
+        <MinimizedFocus onRestore={restoreFocusMode} />
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // src/components/focus/FocusMode.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { FiX, FiClock, FiPlus, FiCheck, FiFolder, FiEdit } from 'react-icons/fi';
+import { FiX, FiClock, FiPlus, FiCheck, FiFolder, FiEdit, FiPause, FiPlay } from 'react-icons/fi';
 import { useAppStore } from '../../store/appStore';
 import FocusSubtaskList from './FocusSubtaskList';
 import TagManager from '../tags/TagManager';
@@ -29,6 +29,7 @@ function FocusMode() {
   const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id || null);
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showSeconds, setShowSeconds] = useState(true); // Neuer State für Sekunden-Anzeige
 
   // Beschreibung aus der Aufgabe laden, wenn sich der Fokus ändert
   useEffect(() => {
@@ -73,19 +74,45 @@ function FocusMode() {
     }
   }, [focusTimer.isRunning, focusTimer.timeLeft, updateFocusTimer]);
 
-  // Timer formatieren (mm:ss)
+  // Timer formatieren (unterschiedlich je nach showSeconds)
   const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    
+    if (hours > 0) {
+      return showSeconds 
+        ? `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}` 
+        : `${hours}:${mins.toString().padStart(2, '0')}`;
+    }
+    
+    return showSeconds 
+      ? `${mins}:${secs.toString().padStart(2, '0')}` 
+      : `${mins}`;
   };
 
   // Timer-Fortschritt in Prozent
   const progress = (focusTimer.timeLeft / focusTimer.duration) * 100;
+  // SVG-Parameter für kreisförmigen Timer
+  const radius = 60;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference * (1 - progress / 100);
+  
+  // Status-Klasse für Button-Hervorhebung
+  const getSecButtonClass = () => {
+    return showSeconds 
+      ? "bg-orange-600 hover:bg-orange-700 text-white" 
+      : "bg-gray-700 hover:bg-gray-600 text-white";
+  };
 
   // Event-Handler
   const toggleTimer = () => {
     updateFocusTimer({ isRunning: !focusTimer.isRunning });
+    window.electron.hapticFeedback();
+  };
+
+  const handleToggleSeconds = () => {
+    setShowSeconds(!showSeconds);
     window.electron.hapticFeedback();
   };
 
@@ -243,28 +270,58 @@ function FocusMode() {
             </button>
           </div>
 
-          <div className="bg-gray-800 rounded-full h-4 mb-2 overflow-hidden">
-            <div 
-              className="bg-orange-600 h-full transition-all duration-1000"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <div className="text-3xl font-mono text-white">
-              {formatTime(focusTimer.timeLeft)}
+          {/* Neuer kreisförmiger Timer */}
+          <div className="flex flex-col items-center justify-center mb-4">
+            <div className="relative w-36 h-36 flex items-center justify-center">
+              {/* Hintergrundkreis */}
+              <svg className="absolute top-0 left-0 w-full h-full -rotate-90" viewBox="0 0 150 150">
+                <circle 
+                  cx="75" 
+                  cy="75" 
+                  r={radius}
+                  fill="transparent" 
+                  stroke="#374151" 
+                  strokeWidth="10" 
+                />
+                <circle 
+                  cx="75" 
+                  cy="75" 
+                  r={radius}
+                  fill="transparent" 
+                  stroke="#EF6C00" 
+                  strokeWidth="10" 
+                  strokeDasharray={circumference} 
+                  strokeDashoffset={strokeDashoffset}
+                  strokeLinecap="round"
+                  className="transition-all duration-1000"
+                />
+              </svg>
+              
+              {/* Timer-Anzeige */}
+              <div className="text-4xl font-mono text-white select-none">
+                {formatTime(focusTimer.timeLeft)}
+              </div>
             </div>
             
-            <div className="flex space-x-2">
+            {/* Timer Steuerungselemente */}
+            <div className="flex mt-4 space-x-3">
               <button
-                className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded flex items-center"
+                className="bg-gray-700 hover:bg-gray-600 text-white w-12 h-12 rounded-full flex items-center justify-center transition-all"
                 onClick={toggleTimer}
               >
-                {focusTimer.isRunning ? 'Pause' : 'Start'}
+                {focusTimer.isRunning ? <FiPause size={20} /> : <FiPlay size={20} />}
               </button>
               
               <button
-                className="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded flex items-center"
+                className={`${getSecButtonClass()} w-12 h-12 rounded-full flex items-center justify-center transition-all`}
+                onClick={handleToggleSeconds}
+                title="Sekunden anzeigen/ausblenden"
+              >
+                <span className="font-mono text-sm font-bold">SEK</span>
+              </button>
+              
+              <button
+                className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-full flex items-center"
                 onClick={handleExtendTimer}
               >
                 <FiPlus className="mr-1" size={14} />

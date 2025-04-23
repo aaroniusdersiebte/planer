@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#121212" />
+    <meta
+      name="description"
+      content="MiniPlaner - Minimalistischer Aufgabenplaner"
+    />
+    <title>MiniPlaner</title>
+  </head>
+  <body>
+    <noscript>Du musst JavaScript aktivieren, um diese App nutzen zu können.</noscript>
+    <div id="root"></div>
+  </body>
+</html>
+
+/* src/index.js */
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);

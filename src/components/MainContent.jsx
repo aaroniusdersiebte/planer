@@ -55,16 +55,24 @@ function MainContent({ view }) {
   } 
   // Gesamtansicht
   else {
-    filteredTasks = tasks;
+    // Zeige nur nicht erledigte Aufgaben in der Gesamtansicht
+    filteredTasks = tasks.filter(task => !task.completed);
   }
 
   // Sortiere Aufgaben nach Gruppen und dann nach Reihenfolge
+  // Dabei werden erledigte Aufgaben nach unten sortiert
   const sortedTasks = [...filteredTasks].sort((a, b) => {
     if (a.groupId !== b.groupId) {
       const aGroupIndex = groups.findIndex(g => g.id === a.groupId);
       const bGroupIndex = groups.findIndex(g => g.id === b.groupId);
       return aGroupIndex - bGroupIndex;
     }
+    
+    // Erledigte Tasks zuletzt
+    if (a.completed !== b.completed) {
+      return a.completed ? 1 : -1;
+    }
+    
     return a.order - b.order;
   });
 
@@ -100,6 +108,17 @@ function MainContent({ view }) {
       destination.index
     );
   };
+
+  // Separiere aktive von erledigten Aufgaben für die Anzeige mit Trennlinie
+  let activeTasks = [], completedTasks = [];
+  
+  if (view.startsWith('group-')) {
+    activeTasks = sortedTasks.filter(task => !task.completed);
+    completedTasks = sortedTasks.filter(task => task.completed);
+  } else {
+    // In der Gesamtansicht zeigen wir nur aktive Aufgaben
+    activeTasks = sortedTasks;
+  }
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -154,7 +173,29 @@ function MainContent({ view }) {
               ref={provided.innerRef}
               {...provided.droppableProps}
             >
-              <TaskList tasks={sortedTasks} />
+              {/* Aktive Aufgaben */}
+              {activeTasks.length > 0 ? (
+                <div className="space-y-3">
+                  <TaskList tasks={activeTasks} />
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 py-10">
+                  Keine aktiven Aufgaben vorhanden
+                </div>
+              )}
+              
+              {/* Trennlinie und Abschnitt für erledigte Aufgaben */}
+              {completedTasks.length > 0 && (
+                <>
+                  <div className="my-6 border-t border-gray-700 pt-4">
+                    <h2 className="text-lg font-medium text-gray-400 mb-4">Abgeschlossene Aufgaben</h2>
+                    <div className="space-y-3">
+                      <TaskList tasks={completedTasks} />
+                    </div>
+                  </div>
+                </>
+              )}
+              
               {provided.placeholder}
             </div>
           )}

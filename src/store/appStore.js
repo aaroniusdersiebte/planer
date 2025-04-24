@@ -150,7 +150,7 @@ export const useAppStore = create((set, get) => ({
       subtasks: [],
       tags: [],
       createdAt: new Date().toISOString(),
-      order: get().tasks.filter(t => t.groupId === groupId).length
+      order: get().tasks.filter(t => t.groupId === groupId && !t.completed).length
     };
 
     set((state) => {
@@ -193,8 +193,18 @@ export const useAppStore = create((set, get) => ({
       const updatedTasks = state.tasks.map((task) => 
         task.id === id ? { ...task, ...updates } : task
       );
-      window.electron.saveData('tasks', updatedTasks);
-      return { tasks: updatedTasks };
+      
+      // Wenn der Completed-Status geändert wurde, sortieren wir die Tasks neu
+      const reorderedTasks = updatedTasks.map((task, _, arr) => {
+        if (task.id === id && 'completed' in updates) {
+          // Neu sortieren innerhalb der Gruppe
+          return reorderTaskAfterCompletion(task, arr);
+        }
+        return task;
+      });
+      
+      window.electron.saveData('tasks', reorderedTasks);
+      return { tasks: reorderedTasks };
     });
   },
 
@@ -208,9 +218,47 @@ export const useAppStore = create((set, get) => ({
 
   completeTask: (id) => {
     set((state) => {
-      const updatedTasks = state.tasks.map((task) => 
+      // Task als erledigt markieren
+      let updatedTasks = state.tasks.map((task) => 
         task.id === id ? { ...task, completed: true } : task
       );
+      
+      // Finde den Task, der gerade aktualisiert wurde
+      const updatedTask = updatedTasks.find(task => task.id === id);
+      
+      if (updatedTask) {
+        // Entferne den aktualisierten Task aus der Liste
+        updatedTasks = updatedTasks.filter(task => task.id !== id);
+        
+        // Bestimme den neuen Order-Wert
+        // Sortiere die Aufgaben in die entsprechenden Bereiche (aktiv oben, erledigt unten)
+        updatedTasks = sortTasksWithCompletedAtBottom(updatedTasks, updatedTask);
+      }
+      
+      window.electron.saveData('tasks', updatedTasks);
+      return { tasks: updatedTasks };
+    });
+  },
+
+  uncompleteTask: (id) => {
+    // Neue Funktion zum Zurücksetzen des Completed-Status
+    set((state) => {
+      // Task als nicht erledigt markieren
+      let updatedTasks = state.tasks.map((task) => 
+        task.id === id ? { ...task, completed: false } : task
+      );
+      
+      // Finde den Task, der gerade aktualisiert wurde
+      const updatedTask = updatedTasks.find(task => task.id === id);
+      
+      if (updatedTask) {
+        // Entferne den aktualisierten Task aus der Liste
+        updatedTasks = updatedTasks.filter(task => task.id !== id);
+        
+        // Füge den Task wieder bei den aktiven Tasks ein (oben)
+        updatedTasks = sortTasksWithCompletedAtBottom(updatedTasks, updatedTask);
+      }
+      
       window.electron.saveData('tasks', updatedTasks);
       return { tasks: updatedTasks };
     });
@@ -304,31 +352,131 @@ export const useAppStore = create((set, get) => ({
     });
   },
 
-  // Drag & Drop für Tasks
+  // Drag & Drop für Tasks - Verbesserte Version
   moveTask: (taskId, sourceGroupId, destGroupId, sourceIndex, destIndex) => {
     set((state) => {
+      // Alle Tasks nach Status (completed oder nicht) und Gruppen trennen
+      const tasksInSourceGroup = state.tasks.filter(t => 
+        (t.groupId === sourceGroupId || 
+         (sourceGroupId === 'ungrouped' && !t.groupId))
+      );
+      
+      const activeTasks = tasksInSourceGroup.filter(t => !t.completed);
+      const completedTasks = tasksInSourceGroup.filter(t => t.completed);
+      
+      const tasksInDestGroup = state.tasks.filter(t => 
+        (t.groupId === destGroupId || 
+         (destGroupId === 'ungrouped' && !t.groupId))
+      );
+      
+      const destActiveTasks = tasksInDestGroup.filter(t => !t.completed);
+      const destCompletedTasks = tasksInDestGroup.filter(t => t.completed);
+      
       // Task finden
       const task = state.tasks.find(t => t.id === taskId);
       if (!task) return state;
 
-      // Task aktualisieren
+      // Task mit aktualisierter Gruppe
       const updatedTask = {
         ...task,
         groupId: destGroupId === 'ungrouped' ? null : destGroupId
       };
-
-      // Alle Tasks aktualisieren
-      let updatedTasks = state.tasks.filter(t => t.id !== taskId);
-      updatedTasks.splice(destIndex, 0, updatedTask);
-
-      // Reihenfolge aktualisieren
-      updatedTasks = updatedTasks.map((t, index) => ({
-        ...t,
-        order: index
-      }));
-
-      window.electron.saveData('tasks', updatedTasks);
-      return { tasks: updatedTasks };
+      
+      // Bestimme, ob der Task in die aktiven oder erledigten Tasks eingeordnet werden soll
+      const isTargetingCompletedSection = 
+        (updatedTask.completed && destIndex >= destActiveTasks.length) || 
+        (!updatedTask.completed && destIndex < destActiveTasks.length);
+        
+      // Entferne Task aus der Ursprungsliste
+      const otherTasks = state.tasks.filter(t => t.id !== taskId);
+      
+      // Füge Task an neuer Position ein, unter Berücksichtigung des Completed-Status
+      let finalTasks = [...otherTasks];
+      
+      // Zähle, wie viele aktive Tasks in der Zielgruppe vorhanden sind
+      const activeTasksInDestGroup = finalTasks.filter(
+        t => (t.groupId === (destGroupId === 'ungrouped' ? null : destGroupId)) && !t.completed
+      );
+      
+      // Bestimme tatsächliche Position basierend auf Status
+      let insertIndex;
+      if (updatedTask.completed) {
+        // Für erledigte Tasks: nach den aktiven Tasks einfügen
+        const activeTasksCount = activeTasksInDestGroup.length;
+        insertIndex = finalTasks.findIndex(
+          t => t.groupId === (destGroupId === 'ungrouped' ? null : destGroupId) && t.completed
+        );
+        
+        if (insertIndex === -1) {
+          // Falls keine erledigten Tasks in der Gruppe, nach den aktiven einfügen
+          insertIndex = finalTasks.findIndex(
+            t => t.groupId === (destGroupId === 'ungrouped' ? null : destGroupId)
+          );
+          if (insertIndex === -1) {
+            finalTasks.push(updatedTask);
+            insertIndex = finalTasks.length - 1;
+          } else {
+            // Nach allen aktiven Tasks einfügen
+            while (insertIndex < finalTasks.length && 
+                   finalTasks[insertIndex].groupId === (destGroupId === 'ungrouped' ? null : destGroupId) && 
+                   !finalTasks[insertIndex].completed) {
+              insertIndex++;
+            }
+            finalTasks.splice(insertIndex, 0, updatedTask);
+          }
+        } else {
+          // Bei den erledigten Tasks an der berechneten Position einfügen
+          finalTasks.splice(insertIndex + (destIndex - activeTasksCount), 0, updatedTask);
+        }
+      } else {
+        // Für aktive Tasks
+        if (destIndex === 0) {
+          // Am Anfang der Gruppe einfügen
+          insertIndex = finalTasks.findIndex(
+            t => t.groupId === (destGroupId === 'ungrouped' ? null : destGroupId)
+          );
+          if (insertIndex === -1) {
+            finalTasks.push(updatedTask);
+          } else {
+            finalTasks.splice(insertIndex, 0, updatedTask);
+          }
+        } else {
+          // An der korrekten Position einfügen
+          let count = 0;
+          insertIndex = -1;
+          
+          for (let i = 0; i < finalTasks.length; i++) {
+            const t = finalTasks[i];
+            if (t.groupId === (destGroupId === 'ungrouped' ? null : destGroupId) && !t.completed) {
+              count++;
+              if (count === destIndex) {
+                insertIndex = i + 1;
+                break;
+              }
+            }
+          }
+          
+          if (insertIndex === -1) {
+            // Einfügen am Ende der aktiven Tasks
+            insertIndex = finalTasks.findIndex(
+              t => t.groupId === (destGroupId === 'ungrouped' ? null : destGroupId) && t.completed
+            );
+            if (insertIndex === -1) {
+              finalTasks.push(updatedTask);
+            } else {
+              finalTasks.splice(insertIndex, 0, updatedTask);
+            }
+          } else {
+            finalTasks.splice(insertIndex, 0, updatedTask);
+          }
+        }
+      }
+      
+      // Orders aktualisieren
+      finalTasks = updateTaskOrders(finalTasks);
+      
+      window.electron.saveData('tasks', finalTasks);
+      return { tasks: finalTasks };
     });
   },
 
@@ -441,7 +589,7 @@ export const useAppStore = create((set, get) => ({
         subtasks: [],
         tags: [],
         createdAt: new Date().toISOString(),
-        order: get().tasks.filter(t => t.groupId === groupId).length
+        order: get().tasks.filter(t => t.groupId === groupId && !t.completed).length
       };
 
       // Note entfernen und Task hinzufügen
@@ -575,3 +723,140 @@ export const useAppStore = create((set, get) => ({
     set({ searchQuery: query });
   }
 }));
+
+// Helper-Funktionen
+
+// Sortiert die Tasks so, dass erledigte Tasks innerhalb einer Gruppe nach unten verschoben werden
+function sortTasksWithCompletedAtBottom(tasks, taskToInsert) {
+  // Erstelle eine neue Array mit allen Tasks außer dem einzufügenden Task
+  let result = [...tasks];
+  
+  // Bestimme den korrekten Einfügepunkt basierend auf dem Completed-Status
+  if (taskToInsert.completed) {
+    // Für erledigte Tasks: Finde den ersten erledigten Task in derselben Gruppe
+    // oder füge am Ende der Gruppe ein
+    let insertIndex = result.findIndex(t => 
+      t.groupId === taskToInsert.groupId && t.completed
+    );
+    
+    if (insertIndex === -1) {
+      // Kein erledigter Task in dieser Gruppe gefunden, füge am Ende der Gruppe ein
+      let lastGroupTaskIndex = -1;
+      
+      for (let i = 0; i < result.length; i++) {
+        if (result[i].groupId === taskToInsert.groupId) {
+          lastGroupTaskIndex = i;
+        } else if (lastGroupTaskIndex !== -1) {
+          // Wir haben die Gruppe verlassen, hier einfügen
+          break;
+        }
+      }
+      
+      if (lastGroupTaskIndex === -1) {
+        // Keine andere Aufgabe in dieser Gruppe, am Ende einfügen
+        result.push(taskToInsert);
+      } else {
+        // Nach der letzten Aufgabe in der Gruppe einfügen
+        result.splice(lastGroupTaskIndex + 1, 0, taskToInsert);
+      }
+    } else {
+      // Bei den anderen erledigten Tasks einfügen
+      result.splice(insertIndex, 0, taskToInsert);
+    }
+  } else {
+    // Für aktive Tasks: Vor dem ersten erledigten Task in derselben Gruppe einfügen
+    // oder vor dem ersten Task der nächsten Gruppe
+    let insertIndex = result.findIndex(t => 
+      t.groupId === taskToInsert.groupId && t.completed
+    );
+    
+    if (insertIndex === -1) {
+      // Kein erledigter Task in dieser Gruppe gefunden, füge vor der nächsten Gruppe ein
+      let nextGroupStartIndex = result.findIndex(t => 
+        t.groupId !== taskToInsert.groupId && 
+        (result.findIndex(prev => prev.groupId === taskToInsert.groupId) < result.indexOf(t))
+      );
+      
+      if (nextGroupStartIndex === -1) {
+        // Keine nächste Gruppe, am Ende einfügen
+        result.push(taskToInsert);
+      } else {
+        // Vor der nächsten Gruppe einfügen
+        result.splice(nextGroupStartIndex, 0, taskToInsert);
+      }
+    } else {
+      // Vor dem ersten erledigten Task einfügen
+      result.splice(insertIndex, 0, taskToInsert);
+    }
+  }
+  
+  return updateTaskOrders(result);
+}
+
+// Ordnet einen Task nach einem Statuswechsel neu ein
+function reorderTaskAfterCompletion(task, allTasks) {
+  const tasksInSameGroup = allTasks.filter(t => t.groupId === task.groupId && t.id !== task.id);
+  
+  if (task.completed) {
+    // Task wurde als erledigt markiert - ans Ende der Gruppe verschieben
+    const completedTasksInGroup = tasksInSameGroup.filter(t => t.completed);
+    // Neue Order: Nach allen anderen erledigten Tasks dieser Gruppe
+    return {
+      ...task,
+      order: completedTasksInGroup.length > 0 
+        ? Math.max(...completedTasksInGroup.map(t => t.order)) + 1
+        : tasksInSameGroup.length // Nach allen nicht-erledigten Tasks
+    };
+  } else {
+    // Task wurde als nicht erledigt markiert - an den Anfang der Gruppe verschieben
+    const activeTasksInGroup = tasksInSameGroup.filter(t => !t.completed);
+    // Neue Order: Vor allen anderen aktiven Tasks dieser Gruppe
+    return {
+      ...task,
+      order: activeTasksInGroup.length > 0 
+        ? Math.min(...activeTasksInGroup.map(t => t.order)) - 1
+        : 0 // Ganz am Anfang, wenn keine anderen aktiven Tasks
+    };
+  }
+}
+
+// Aktualisiert die Order-Werte aller Tasks, sortiert nach Gruppen und Completed-Status
+function updateTaskOrders(tasks) {
+  // Gruppiere Tasks nach groupId
+  const groupedTasks = {};
+  
+  tasks.forEach(task => {
+    const groupId = task.groupId || 'ungrouped';
+    if (!groupedTasks[groupId]) {
+      groupedTasks[groupId] = [];
+    }
+    groupedTasks[groupId].push(task);
+  });
+  
+  // Innerhalb jeder Gruppe: Aktive zuerst, dann erledigte, mit fortlaufenden Order-Werten
+  const result = [];
+  
+  Object.keys(groupedTasks).forEach(groupId => {
+    const groupTasks = groupedTasks[groupId];
+    
+    // Aktive Tasks
+    const activeTasks = groupTasks.filter(t => !t.completed)
+      .sort((a, b) => a.order - b.order)
+      .map((task, index) => ({
+        ...task,
+        order: index
+      }));
+    
+    // Erledigte Tasks
+    const completedTasks = groupTasks.filter(t => t.completed)
+      .sort((a, b) => a.order - b.order)
+      .map((task, index) => ({
+        ...task,
+        order: activeTasks.length + index
+      }));
+    
+    result.push(...activeTasks, ...completedTasks);
+  });
+  
+  return result;
+}

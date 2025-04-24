@@ -9,14 +9,21 @@ function TrelloView({ onDragEnd }) {
   const { groups, tasks, addTask } = useAppStore();
 
   // Aufgaben nach Gruppen gruppieren
+  // Aber in der All-Ansicht nur nicht erledigte Aufgaben zeigen
   const groupedTasks = {};
   groups.forEach(group => {
-    groupedTasks[group.id] = tasks.filter(task => task.groupId === group.id)
-      .sort((a, b) => a.order - b.order);
+    const tasksInGroup = tasks.filter(task => 
+      task.groupId === group.id && !task.completed
+    );
+    
+    // Sortiere nach order
+    groupedTasks[group.id] = tasksInGroup.sort((a, b) => a.order - b.order);
   });
 
-  // Aufgaben ohne Gruppe
-  const ungroupedTasks = tasks.filter(task => !task.groupId);
+  // Aufgaben ohne Gruppe (nur nicht erledigte)
+  const ungroupedTasks = tasks.filter(task => 
+    !task.groupId && !task.completed
+  ).sort((a, b) => a.order - b.order);
 
   const handleAddTask = (groupId) => {
     addTask(groupId, 'Neue Aufgabe');

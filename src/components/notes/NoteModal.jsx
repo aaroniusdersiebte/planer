@@ -1,43 +1,32 @@
 // src/components/notes/NoteModal.jsx
 import React, { useState, useEffect } from 'react';
 import { FiX, FiSave } from 'react-icons/fi';
-import { useAppStore } from '../../store/appStore';
+import { createNewNote } from '../../utils/itemCreationUtils';
 
 function NoteModal({ isOpen, onClose }) {
-  const { addNote, startFocusMode } = useAppStore();
   const [title, setTitle] = useState('Neue Notiz');
   const [content, setContent] = useState('');
+  const [openInFocus, setOpenInFocus] = useState(true);
 
   // Reset Felder, wenn Modal geöffnet wird
   useEffect(() => {
     if (isOpen) {
       setTitle('Neue Notiz');
       setContent('');
+      setOpenInFocus(true);
     }
   }, [isOpen]);
 
   const handleSave = () => {
-    // Notiz erstellen
-    const note = {
-      id: Date.now().toString(),
+    // Globale Funktion zum Erstellen einer Notiz verwenden
+    createNewNote({
       title: title.trim() || 'Neue Notiz',
       content,
-      createdAt: new Date().toISOString()
-    };
-    
-    // Notiz hinzufügen
-    addNote(note.title, note.content);
-    
-    // Feedback
-    window.electron.hapticFeedback();
+      openInFocus
+    });
     
     // Modal schließen
     onClose();
-    
-    // Neue Notiz im Fokus-Modus öffnen
-    setTimeout(() => {
-      startFocusMode(`note-${note.id}`);
-    }, 100);
   };
 
   if (!isOpen) return null;
@@ -56,22 +45,42 @@ function NoteModal({ isOpen, onClose }) {
         </div>
         
         <div className="mb-4">
+          <label className="block text-gray-300 text-sm font-medium mb-2">
+            Titel
+          </label>
           <input
-            className="w-full bg-gray-700 text-white p-3 rounded outline-none mb-2"
+            className="w-full bg-gray-700 text-white p-3 rounded outline-none focus:ring-1 focus:ring-orange-500"
             placeholder="Titel der Notiz"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            autoFocus
           />
         </div>
         
         <div className="mb-4">
+          <label className="block text-gray-300 text-sm font-medium mb-2">
+            Inhalt
+          </label>
           <textarea
-            className="w-full bg-gray-700 text-white p-3 rounded resize-none outline-none"
+            className="w-full bg-gray-700 text-white p-3 rounded resize-none outline-none focus:ring-1 focus:ring-orange-500"
             placeholder="Notizinhalt"
             value={content}
             onChange={(e) => setContent(e.target.value)}
             rows={6}
           />
+        </div>
+        
+        <div className="flex items-center mb-4">
+          <input
+            type="checkbox"
+            id="openInFocus"
+            className="mr-2"
+            checked={openInFocus}
+            onChange={(e) => setOpenInFocus(e.target.checked)}
+          />
+          <label htmlFor="openInFocus" className="text-gray-300 text-sm">
+            Im Fokus-Modus öffnen
+          </label>
         </div>
         
         <div className="flex justify-end">

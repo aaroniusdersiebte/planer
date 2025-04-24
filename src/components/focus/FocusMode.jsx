@@ -1,10 +1,11 @@
 // src/components/focus/FocusMode.jsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { FiX, FiClock, FiPlus, FiCheck, FiFolder, FiEdit, FiPause, FiPlay, FiSave, FiMinimize2 } from 'react-icons/fi';
+import { FiX, FiClock, FiPlus, FiCheck, FiFolder, FiEdit, FiPause, FiPlay, FiSave, FiMinimize2, FiList } from 'react-icons/fi';
 import { useAppStore } from '../../store/appStore';
 import SubtaskDraggableList from '../tasks/SubtaskDraggableList';
 import TagManager from '../tags/TagManager';
 import NoteModal from '../notes/NoteModal';
+import { createNewNote, createNewTask } from '../../utils/itemCreationUtils';
 
 function FocusMode() {
   // Store-Zugriff mit direktem Zugriff auf die aktuelle Note/Task
@@ -30,9 +31,15 @@ function FocusMode() {
   const [showGroupSelect, setShowGroupSelect] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id || null);
   const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showTaskModal, setShowTaskModal] = useState(false);
   const [showSeconds, setShowSeconds] = useState(true);
   const [editingEntryId, setEditingEntryId] = useState(null);
   const [editingEntryText, setEditingEntryText] = useState('');
+  
+  // Neue States für Task-Erstellung
+  const [newTaskTitle, setNewTaskTitle] = useState('Neue Aufgabe');
+  const [newTaskSubtasks, setNewTaskSubtasks] = useState([]);
+  const [newSubtaskText, setNewSubtaskText] = useState('');
 
   // Hier holen wir immer die aktuelle Version der Aufgabe/Notiz aus dem Store
   const getCurrentFocusTask = useCallback(() => {
@@ -247,6 +254,43 @@ function FocusMode() {
     });
   };
 
+  // Neue Funktion für Erstellung einer Aufgabe
+  const handleCreateTask = () => {
+    createNewTask({
+      title: newTaskTitle,
+      groupId: selectedGroupId,
+      subtasks: newTaskSubtasks,
+      openInFocus: true
+    });
+    
+    // Dialog schließen
+    setShowTaskModal(false);
+    
+    // Felder zurücksetzen
+    setNewTaskTitle('Neue Aufgabe');
+    setNewTaskSubtasks([]);
+    setNewSubtaskText('');
+  };
+
+  // Neue Funktion für das Hinzufügen von Unteraufgaben im Erstellungsdialog
+  const handleAddSubtaskToNewTask = () => {
+    if (newSubtaskText.trim()) {
+      setNewTaskSubtasks([...newTaskSubtasks, newSubtaskText.trim()]);
+      setNewSubtaskText('');
+    }
+  };
+
+  const handleRemoveSubtaskFromNewTask = (index) => {
+    setNewTaskSubtasks(newTaskSubtasks.filter((_, i) => i !== index));
+  };
+
+  const handleSubtaskKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddSubtaskToNewTask();
+    }
+  };
+
   // Wenn keine Aufgabe im Fokus ist, zeige das Popup oder eine einfache Anzeige an
   if (!focusTask) {
     return (
@@ -286,6 +330,15 @@ function FocusMode() {
                 <FiEdit className="mr-3" size={20} />
                 <span>Neue Notiz erstellen</span>
               </button>
+
+              {/* Neuer Button für Aufgabenerstellung */}
+              <button
+                className="bg-gray-800 hover:bg-gray-700 text-white px-8 py-3 rounded-lg flex items-center w-64"
+                onClick={() => setShowTaskModal(true)}
+              >
+                <FiList className="mr-3" size={20} />
+                <span>Neue Aufgabe erstellen</span>
+              </button>
               
               <button
                 className="bg-gray-800 hover:bg-gray-700 text-white px-8 py-3 rounded-lg flex items-center w-64"
@@ -303,6 +356,104 @@ function FocusMode() {
           isOpen={showNoteModal} 
           onClose={() => setShowNoteModal(false)} 
         />
+
+        {/* Aufgaben-Modal */}
+        {showTaskModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-lg p-4 w-full max-w-md mx-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold text-white">Neue Aufgabe</h2>
+                <button
+                  className="text-gray-400 hover:text-white"
+                  onClick={() => setShowTaskModal(false)}
+                >
+                  <FiX size={20} />
+                </button>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-gray-300 text-sm font-medium mb-2">
+                  Titel
+                </label>
+                <input
+                  className="w-full bg-gray-700 text-white p-3 rounded outline-none focus:ring-1 focus:ring-orange-500"
+                  placeholder="Aufgabentitel"
+                  value={newTaskTitle}
+                  onChange={(e) => setNewTaskTitle(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-gray-300 text-sm font-medium mb-2">
+                  Gruppe
+                </label>
+                <select
+                  className="w-full bg-gray-700 text-white p-3 rounded outline-none focus:ring-1 focus:ring-orange-500"
+                  value={selectedGroupId || ''}
+                  onChange={(e) => setSelectedGroupId(e.target.value)}
+                >
+                  {groups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-gray-300 text-sm font-medium mb-2">
+                  Unteraufgaben
+                </label>
+                
+                {/* Liste der bereits hinzugefügten Unteraufgaben */}
+                {newTaskSubtasks.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {newTaskSubtasks.map((subtask, index) => (
+                      <div key={index} className="flex items-center bg-gray-700 rounded p-2">
+                        <span className="flex-1 text-white">{subtask}</span>
+                        <button
+                          className="text-red-500 hover:text-red-400 ml-2"
+                          onClick={() => handleRemoveSubtaskFromNewTask(index)}
+                        >
+                          <FiX size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {/* Eingabefeld für neue Unteraufgabe */}
+                <div className="flex items-center">
+                  <input
+                    className="flex-1 bg-gray-700 text-white p-2 rounded-l outline-none focus:ring-1 focus:ring-orange-500"
+                    placeholder="Neue Unteraufgabe hinzufügen"
+                    value={newSubtaskText}
+                    onChange={(e) => setNewSubtaskText(e.target.value)}
+                    onKeyDown={handleSubtaskKeyDown}
+                  />
+                  <button
+                    className="bg-gray-600 hover:bg-gray-500 text-white p-2 rounded-r"
+                    onClick={handleAddSubtaskToNewTask}
+                  >
+                    <FiPlus size={16} />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="flex justify-end">
+                <button
+                  className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded flex items-center"
+                  onClick={handleCreateTask}
+                  disabled={!newTaskTitle.trim() || !selectedGroupId}
+                >
+                  <FiSave className="mr-2" />
+                  <span>Aufgabe erstellen</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

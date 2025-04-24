@@ -6,10 +6,11 @@ import {
   FiArchive, 
   FiEdit, 
   FiSearch,
-  FiX,
-  FiClock
+  FiX
 } from 'react-icons/fi';
 import { useAppStore } from '../../store/appStore';
+import DailyStats from './DailyStats';
+import QuickActions from './QuickActions';
 
 function Sidebar() {
   const { 
@@ -18,8 +19,7 @@ function Sidebar() {
     setView, 
     addGroup,
     setSearchQuery,
-    searchQuery,
-    startFocusMode
+    searchQuery
   } = useAppStore();
   const [newGroupName, setNewGroupName] = useState('');
   const [isAddingGroup, setIsAddingGroup] = useState(false);
@@ -55,6 +55,11 @@ function Sidebar() {
       {/* Header */}
       <div className="p-4 border-b border-gray-700">
         <h1 className="text-xl font-semibold text-white">MiniPlaner</h1>
+      </div>
+
+      {/* Tägliche Statistiken hinzufügen */}
+      <div className="p-2">
+        <DailyStats />
       </div>
 
       {/* Suche */}
@@ -110,8 +115,8 @@ function Sidebar() {
             </button>
           </li>
 
-{/* Notizen */}
-<li>
+          {/* Notizen */}
+          <li>
             <button
               className={`flex items-center w-full px-4 py-2 ${
                 view === 'notes' 
@@ -124,21 +129,6 @@ function Sidebar() {
               <span>Notizen</span>
             </button>
           </li>
-
-          {/* Neue Notiz im Fokus-Modus */}
-          <li>
-            <button
-              className="flex items-center w-full px-4 py-2 text-gray-400 hover:bg-gray-700 hover:text-white"
-              onClick={() => {
-                startFocusMode();
-                window.electron.hapticFeedback();
-              }}
-            >
-              <FiClock className="mr-2" />
-              <span>Neue Notiz im Fokus</span>
-            </button>
-          </li>
-
 
           {/* Archiv */}
           <li>
@@ -220,6 +210,11 @@ function Sidebar() {
           )}
         </ul>
       </nav>
+
+      {/* Shortcuts am unteren Rand */}
+      <div className="p-2 mt-auto">
+        <QuickActions />
+      </div>
     </div>
   );
 }

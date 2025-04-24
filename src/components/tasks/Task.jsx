@@ -9,6 +9,7 @@ import {
   FiEdit,
   FiTrash2,
   FiSave,
+  FiRefreshCw,
   FiMessageSquare
 } from 'react-icons/fi';
 import { useAppStore } from '../../store/appStore';
@@ -23,7 +24,8 @@ function Task({ task, index, trelloView }) {
     startFocusMode,
     groups,
     tags,
-    addDescriptionEntry
+    addDescriptionEntry,
+    uncompleteTask
   } = useAppStore();
   
   const [expanded, setExpanded] = useState(false);
@@ -43,6 +45,12 @@ function Task({ task, index, trelloView }) {
   const handleComplete = (e) => {
     e.stopPropagation();
     completeTask(task.id);
+    window.electron.hapticFeedback();
+  };
+
+  const handleUncomplete = (e) => {
+    e.stopPropagation();
+    uncompleteTask(task.id);
     window.electron.hapticFeedback();
   };
 
@@ -142,7 +150,7 @@ function Task({ task, index, trelloView }) {
       <Draggable draggableId={task.id} index={index}>
         {(provided) => (
           <div
-            className="bg-gray-700 rounded-md shadow-sm"
+            className={`bg-gray-700 rounded-md shadow-sm ${task.completed ? 'opacity-70 border-l-4 border-green-600' : ''}`}
             ref={provided.innerRef}
             {...provided.draggableProps}
             {...provided.dragHandleProps}
@@ -155,7 +163,8 @@ function Task({ task, index, trelloView }) {
                       ? 'bg-green-600 border-green-600 text-white' 
                       : 'border-gray-600 hover:border-orange-500'
                   } flex items-center justify-center`}
-                  onClick={handleComplete}
+                  onClick={task.completed ? handleUncomplete : handleComplete}
+                  title={task.completed ? "Als unerledigt markieren" : "Als erledigt markieren"}
                 >
                   {task.completed && <FiCheck size={12} />}
                 </button>
@@ -164,6 +173,7 @@ function Task({ task, index, trelloView }) {
                   <button 
                     className="text-gray-400 hover:text-orange-400 p-1"
                     onClick={handleStartFocus}
+                    title="Fokus-Modus"
                   >
                     <FiClock size={14} />
                   </button>
@@ -171,6 +181,7 @@ function Task({ task, index, trelloView }) {
                   <button 
                     className="text-gray-400 hover:text-red-500 p-1"
                     onClick={handleDelete}
+                    title="Löschen"
                   >
                     <FiTrash2 size={14} />
                   </button>
@@ -190,7 +201,7 @@ function Task({ task, index, trelloView }) {
                 />
               ) : (
                 <div 
-                  className="text-white font-medium mb-1 cursor-pointer"
+                  className={`text-white font-medium mb-1 cursor-pointer ${task.completed ? 'line-through text-gray-400' : ''}`}
                   onClick={handleTitleClick}
                 >
                   {task.title}
@@ -238,7 +249,7 @@ function Task({ task, index, trelloView }) {
     <Draggable draggableId={task.id} index={index}>
       {(provided) => (
         <div
-          className="bg-gray-800 rounded-lg shadow"
+          className={`bg-gray-800 rounded-lg shadow ${task.completed ? 'opacity-80 border-l-4 border-green-600' : ''}`}
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
@@ -249,16 +260,23 @@ function Task({ task, index, trelloView }) {
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center flex-1">
-                <button
-                  className={`w-5 h-5 rounded-full border ${
-                    task.completed 
-                      ? 'bg-green-600 border-green-600 text-white' 
-                      : 'border-gray-600 hover:border-orange-500'
-                  } flex items-center justify-center mr-3`}
-                  onClick={handleComplete}
-                >
-                  {task.completed && <FiCheck size={12} />}
-                </button>
+                {task.completed ? (
+                  <button
+                    className="w-5 h-5 rounded-full bg-green-600 border-green-600 text-white flex items-center justify-center mr-3"
+                    onClick={handleUncomplete}
+                    title="Als unerledigt markieren"
+                  >
+                    <FiRefreshCw size={12} />
+                  </button>
+                ) : (
+                  <button
+                    className="w-5 h-5 rounded-full border border-gray-600 hover:border-orange-500 flex items-center justify-center mr-3"
+                    onClick={handleComplete}
+                    title="Als erledigt markieren"
+                  >
+                    <FiCheck className="opacity-0" size={12} />
+                  </button>
+                )}
 
                 {editing ? (
                   <input
@@ -274,7 +292,7 @@ function Task({ task, index, trelloView }) {
                 ) : (
                   <div className="flex-1">
                     <div 
-                      className="text-white font-medium cursor-pointer"
+                      className={`text-white font-medium cursor-pointer ${task.completed ? 'line-through text-gray-400' : ''}`}
                       onClick={handleTitleClick}
                     >
                       {task.title}

@@ -3,6 +3,7 @@
 @tailwind components;
 @tailwind utilities;
 
+
 /* Zusätzliche benutzerdefinierte Stile */
 body {
   margin: 0;
@@ -44,6 +45,57 @@ button, a {
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45);
   transform: scale(1.02);
   opacity: 0.9;
+}
+
+/* Animationen für Aufgaben und Counter */
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes checkmark-pop {
+  0% {
+    transform: scale(0.8);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes slide-down {
+  0% {
+    opacity: 0.5;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Animierte Klassen */
+.animate-bounce {
+  animation: bounce 0.5s ease-in-out;
+}
+
+.animate-check {
+  animation: checkmark-pop 0.3s ease-out;
+}
+
+.animate-slide-down {
+  animation: slide-down 0.5s ease-out forwards;
+}
+
+/* Sortierungsanimation für Aufgaben */
+.task-completed {
+  transition: all 0.5s ease-out;
 }
 
 /* Fokus-Timer Animation */

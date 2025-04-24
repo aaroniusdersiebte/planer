@@ -1,5 +1,5 @@
 // src/components/tasks/SubtaskDraggableList.jsx
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Droppable, Draggable } from 'react-beautiful-dnd';
 import { FiPlus, FiCheck, FiX, FiMenu } from 'react-icons/fi';
 import { useAppStore } from '../../store/appStore';
@@ -10,6 +10,7 @@ function SubtaskDraggableList({ taskId, allowAdding = true }) {
   
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [isAddingSubtask, setIsAddingSubtask] = useState(false);
+  const inputRef = useRef(null);
   
   // Hole die aktuelle Aufgabe direkt aus dem Store für Echtzeit-Updates
   const task = tasks.find(t => t.id === taskId);
@@ -18,17 +19,34 @@ function SubtaskDraggableList({ taskId, allowAdding = true }) {
     return <div className="text-gray-400 text-sm">Keine Unteraufgaben vorhanden</div>;
   }
 
+  // Sortiere Unteraufgaben: zuerst nicht erledigte, dann erledigte
+  const sortedSubtasks = [...task.subtasks].sort((a, b) => {
+    if (a.completed !== b.completed) {
+      return a.completed ? 1 : -1; // Erledigte nach unten
+    }
+    // Ansonsten nach Reihenfolge sortieren
+    return 0;
+  });
+
   const handleAddSubtask = () => {
     if (newSubtaskTitle.trim()) {
       addSubtask(taskId, newSubtaskTitle.trim());
+      // Feld nicht zurücksetzen
       setNewSubtaskTitle('');
-      setIsAddingSubtask(false);
       window.electron.hapticFeedback();
+      
+      // Fokus im Eingabefeld behalten
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 10);
     }
   };
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') {
+      e.preventDefault();
       handleAddSubtask();
     } else if (e.key === 'Escape') {
       setIsAddingSubtask(false);
@@ -36,7 +54,12 @@ function SubtaskDraggableList({ taskId, allowAdding = true }) {
     }
   };
 
-  const handleToggleComplete = (subtaskId, completed) => {
+  const handleToggleComplete = (e, subtaskId, completed) => {
+    // Animation für Checkbox
+    const target = e.currentTarget;
+    target.classList.add('scale-90');
+    setTimeout(() => target.classList.remove('scale-90'), 150);
+    
     updateSubtask(taskId, subtaskId, { completed: !completed });
     window.electron.hapticFeedback();
   };
@@ -51,10 +74,10 @@ function SubtaskDraggableList({ taskId, allowAdding = true }) {
             ref={provided.innerRef}
             {...provided.droppableProps}
           >
-            {task.subtasks.length === 0 ? (
+            {sortedSubtasks.length === 0 ? (
               <div className="text-gray-400 text-sm">Keine Unteraufgaben vorhanden</div>
             ) : (
-              task.subtasks.map((subtask, index) => (
+              sortedSubtasks.map((subtask, index) => (
                 <Draggable 
                   key={subtask.id} 
                   draggableId={subtask.id} 
@@ -62,7 +85,9 @@ function SubtaskDraggableList({ taskId, allowAdding = true }) {
                 >
                   {(provided) => (
                     <div 
-                      className="flex items-center group bg-gray-600 rounded-sm px-2 py-1"
+                      className={`flex items-center group ${
+                        subtask.completed ? 'bg-gray-600 bg-opacity-50' : 'bg-gray-600'
+                      } rounded-sm px-2 py-1`}
                       ref={provided.innerRef}
                       {...provided.draggableProps}
                     >
@@ -117,6 +142,7 @@ function SubtaskDraggableList({ taskId, allowAdding = true }) {
         isAddingSubtask ? (
           <div className="flex items-center">
             <input
+              ref={inputRef}
               type="text"
               className="flex-1 bg-gray-700 text-white px-2 py-1 text-sm rounded outline-none"
               placeholder="Neue Unteraufgabe"

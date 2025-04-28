@@ -2,15 +2,21 @@
     "name": "miniplaner",
     "version": "1.0.0",
     "description": "Minimalistischer Planer mit Electron und React",
-    "main": "electron/main.js",
-"scripts": {
-  "start": "concurrently \"npm run react-start\" \"npm run electron-start\"",
-  "react-start": "cross-env BROWSER=none NODE_ENV=development react-scripts start",
-  "electron-start": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
-  "build": "react-scripts build && electron-builder",
-  "test": "react-scripts test",
-  "eject": "react-scripts eject"
-},
+    "main": "public/electron.js",
+    "homepage": "./",
+    "author": {
+        "name": "MiniPlaner Developer",
+        "email": "dev@miniplaner.example"
+    },
+    "scripts": {
+        "start": "concurrently \"npm run react-start\" \"npm run electron-start\"",
+        "react-start": "cross-env BROWSER=none NODE_ENV=development react-scripts start",
+        "electron-start": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
+        "build": "react-scripts build",
+        "electron:build": "npm run build && electron-builder",
+        "test": "react-scripts test",
+        "eject": "react-scripts eject"
+    },
     "dependencies": {
         "electron-store": "^8.2.0",
         "nanoid": "^5.1.5",
@@ -49,7 +55,9 @@
         "productName": "MiniPlaner",
         "files": [
             "build/**/*",
-            "electron/**/*"
+            "electron/**/*",
+            "public/electron.js",
+            "package.json"
         ],
         "directories": {
             "buildResources": "assets"

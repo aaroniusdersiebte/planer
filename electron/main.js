@@ -33,10 +33,10 @@ function createWindow() {
   });
 
   // WICHTIG: Lade die richtige URL basierend auf der Umgebung
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  const startUrl = isDev 
-    ? 'http://localhost:3000' // Dev-Server
-    : `file://${path.join(__dirname, '../build/index.html')}`; // Prod-Build
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const startUrl = isDev 
+  ? 'http://localhost:3000' // Dev server
+  : `file://${path.join(__dirname, '../build/index.html')}`; // Production build path
   
   mainWindow.loadURL(startUrl);
   
@@ -87,4 +87,6 @@ ipcMain.handle('hapticFeedback', async () => {
       }
     `);
   }
+
+  mainWindow.webContents.openDevTools();
 });

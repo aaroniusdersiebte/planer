@@ -1,7 +1,12 @@
 // electron/main.js
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
+
+// Dienste importieren
+const settingsService = require('../src/services/settingsService');
+const obsService = require('../src/services/obsService');
+const webServerService = require('../src/services/webServerService');
 
 // Initialisiere den Speicher
 const store = new Store({
@@ -33,10 +38,10 @@ function createWindow() {
   });
 
   // WICHTIG: Lade die richtige URL basierend auf der Umgebung
-const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-const startUrl = isDev 
-  ? 'http://localhost:3000' // Dev server
-  : `file://${path.join(__dirname, '../build/index.html')}`; // Production build path
+  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+  const startUrl = isDev 
+    ? 'http://localhost:3000' // Dev server
+    : `file://${path.join(__dirname, '../build/index.html')}`; // Production build path
   
   mainWindow.loadURL(startUrl);
   
@@ -49,10 +54,27 @@ const startUrl = isDev
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+  
+  // Globale Referenz auf das Hauptfenster
+  global.mainWindow = mainWindow;
 }
 
 // Erstelle das Fenster, wenn Electron bereit ist
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  
+  // Dienste starten, wenn Einstellungen aktiviert sind
+  const obsSettings = settingsService.getOBSSettings();
+  if (obsSettings.enabled) {
+    // Webserver starten
+    webServerService.start();
+    
+    // Mit OBS verbinden, wenn autoReconnect aktiviert ist
+    if (obsSettings.autoReconnect) {
+      obsService.connect().catch(err => console.error('Fehler beim Verbinden mit OBS:', err));
+    }
+  }
+});
 
 // Beende die Anwendung, wenn alle Fenster geschlossen sind (außer auf macOS)
 app.on('window-all-closed', () => {
@@ -87,6 +109,62 @@ ipcMain.handle('hapticFeedback', async () => {
       }
     `);
   }
-
-  mainWindow.webContents.openDevTools();
 });
+
+// IPC für Einstellungen
+ipcMain.handle('settings:getGeneral', async () => {
+  return settingsService.getGeneralSettings();
+});
+
+ipcMain.handle('settings:updateGeneral', async (event, settings) => {
+  return settingsService.updateGeneralSettings(settings);
+});
+
+ipcMain.handle('settings:getOBS', async () => {
+  return settingsService.getOBSSettings();
+});
+
+ipcMain.handle('settings:updateOBS', async (event, settings) => {
+  return settingsService.updateOBSSettings(settings);
+});
+
+// IPC für Datei-Dialoge
+ipcMain.handle('showSaveDialog', async (event, options) => {
+  return dialog.showSaveDialog(mainWindow, options);
+});
+
+ipcMain.handle('showOpenDialog', async (event, options) => {
+  return dialog.showOpenDialog(mainWindow, options);
+});
+
+ipcMain.handle('showMessageBox', async (event, options) => {
+  return dialog.showMessageBox(mainWindow, options);
+});
+
+ipcMain.handle('exportSettings', async (event, filePath) => {
+  return settingsService.exportSettings(filePath);
+});
+
+ipcMain.handle('importSettings', async (event, filePath) => {
+  return settingsService.importSettings(filePath);
+});
+
+ipcMain.handle('restartApp', async () => {
+  app.relaunch();
+  app.exit(0);
+});
+
+// IPC für Aufgabenabschluss (OBS-Integration)
+ipcMain.handle('handleTaskCompleted', async (event, taskId, groupId) => {
+  obsService.handleTaskCompleted({ id: taskId }, groupId);
+  return true;
+});
+
+ipcMain.handle('handleSubtaskCompleted', async (event, taskId, subtaskId, groupId) => {
+  obsService.handleSubtaskCompleted(taskId, subtaskId, groupId);
+  return true;
+});
+
+// IPC-Handler für OBS und Webserver registrieren
+obsService.registerIPCHandlers();
+webServerService.registerIPCHandlers();

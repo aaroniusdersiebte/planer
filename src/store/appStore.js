@@ -59,6 +59,13 @@ export const useAppStore = create((set, get) => ({
       });
 
       set({ groups, tasks: migratedTasks, tags, notes, archivedTasks });
+      
+      // Aktualisiere den Webserver mit den Aufgaben der konfigurierten Gruppe
+      const obsSettings = await window.electron.getOBSSettings();
+      if (obsSettings && obsSettings.enabled && obsSettings.streamGroup) {
+        const groupTasks = migratedTasks.filter(task => task.groupId === obsSettings.streamGroup);
+        window.electron.updateWebServerTasks(groupTasks);
+      }
     } catch (error) {
       console.error('Fehler beim Laden der Daten:', error);
       // Fallback auf leere Arrays, um App-Abstürze zu vermeiden
@@ -156,6 +163,15 @@ export const useAppStore = create((set, get) => ({
     set((state) => {
       const newTasks = [...state.tasks, newTask];
       window.electron.saveData('tasks', newTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver, wenn die Gruppe für OBS ausgewählt ist
+      window.electron.getOBSSettings().then(obsSettings => {
+        if (obsSettings.enabled && obsSettings.streamGroup === groupId) {
+          const groupTasks = newTasks.filter(task => task.groupId === groupId);
+          window.electron.updateWebServerTasks(groupTasks);
+        }
+      });
+      
       return { tasks: newTasks };
     });
   },
@@ -204,48 +220,96 @@ export const useAppStore = create((set, get) => ({
       });
       
       window.electron.saveData('tasks', reorderedTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver, wenn die Gruppe für OBS ausgewählt ist
+      const updatedTask = reorderedTasks.find(task => task.id === id);
+      if (updatedTask) {
+        window.electron.getOBSSettings().then(obsSettings => {
+          if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
+            const groupTasks = reorderedTasks.filter(task => task.groupId === updatedTask.groupId);
+            window.electron.updateWebServerTasks(groupTasks);
+          }
+        });
+      }
+      
       return { tasks: reorderedTasks };
     });
   },
 
   deleteTask: (id) => {
     set((state) => {
+      const taskToDelete = state.tasks.find(task => task.id === id);
+      const groupId = taskToDelete?.groupId;
+      
       const newTasks = state.tasks.filter((task) => task.id !== id);
       window.electron.saveData('tasks', newTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver, wenn die Gruppe für OBS ausgewählt ist
+      if (groupId) {
+        window.electron.getOBSSettings().then(obsSettings => {
+          if (obsSettings.enabled && obsSettings.streamGroup === groupId) {
+            const groupTasks = newTasks.filter(task => task.groupId === groupId);
+            window.electron.updateWebServerTasks(groupTasks);
+          }
+        });
+      }
+      
       return { tasks: newTasks };
     });
   },
 
-  completeTask: (id) => {
+  completeTask: (taskId) => {
     set((state) => {
-      // Task als erledigt markieren
-      let updatedTasks = state.tasks.map((task) => 
-        task.id === id ? { ...task, completed: true } : task
-      );
+      // Finde die Aufgabe anhand der ID
+      const taskToUpdate = state.tasks.find(t => t.id === taskId);
       
-      // Finde den Task, der gerade aktualisiert wurde
-      const updatedTask = updatedTasks.find(task => task.id === id);
-      
-      if (updatedTask) {
-        // Entferne den aktualisierten Task aus der Liste
-        updatedTasks = updatedTasks.filter(task => task.id !== id);
-        
-        // Bestimme den neuen Order-Wert
-        // Sortiere die Aufgaben in die entsprechenden Bereiche (aktiv oben, erledigt unten)
-        updatedTasks = sortTasksWithCompletedAtBottom(updatedTasks, updatedTask);
+      if (!taskToUpdate) {
+        console.error(`Aufgabe mit ID ${taskId} nicht gefunden`);
+        return state; // Keine Änderung, wenn Aufgabe nicht gefunden
       }
       
+      // Neue Kopie der Aufgaben erstellen mit aktualisiertem Status
+      const updatedTasks = state.tasks.map((task) => 
+        task.id === taskId 
+          ? { ...task, completed: true, completedAt: new Date().toISOString() } 
+          : task
+      );
+      
+      // Speichern
       window.electron.saveData('tasks', updatedTasks);
+      
+      // OBS benachrichtigen, wenn die entsprechende Gruppe ausgewählt ist
+      window.electron.getOBSSettings().then(obsSettings => {
+        if (obsSettings.enabled && obsSettings.streamGroup === taskToUpdate.groupId) {
+          // Gruppennamen finden
+          const group = state.groups.find(g => g.id === taskToUpdate.groupId);
+          const groupName = group ? group.name : 'Aufgabenliste';
+          
+          // Aufgaben der Gruppe mit Gruppennamen anreichern
+          const groupTasks = updatedTasks
+            .filter(t => t.groupId === taskToUpdate.groupId)
+            .map(t => ({
+              ...t,
+              groupName // Gruppennamen zu jeder Aufgabe hinzufügen
+            }));
+          
+          // An den Webserver senden
+          window.electron.updateWebServerTasks(groupTasks);
+          
+          // OBS-Service benachrichtigen
+          window.electron.handleTaskCompleted(taskToUpdate.id, taskToUpdate.groupId);
+        }
+      });
+      
       return { tasks: updatedTasks };
     });
   },
-
   uncompleteTask: (id) => {
     // Neue Funktion zum Zurücksetzen des Completed-Status
     set((state) => {
       // Task als nicht erledigt markieren
       let updatedTasks = state.tasks.map((task) => 
-        task.id === id ? { ...task, completed: false } : task
+        task.id === id ? { ...task, completed: false, completedAt: null } : task
       );
       
       // Finde den Task, der gerade aktualisiert wurde
@@ -257,6 +321,14 @@ export const useAppStore = create((set, get) => ({
         
         // Füge den Task wieder bei den aktiven Tasks ein (oben)
         updatedTasks = sortTasksWithCompletedAtBottom(updatedTasks, updatedTask);
+        
+        // OBS-Integration: Aktualisiere den Webserver
+        window.electron.getOBSSettings().then(obsSettings => {
+          if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
+            const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
+            window.electron.updateWebServerTasks(groupTasks);
+          }
+        });
       }
       
       window.electron.saveData('tasks', updatedTasks);
@@ -272,6 +344,17 @@ export const useAppStore = create((set, get) => ({
 
       window.electron.saveData('tasks', remainingTasks);
       window.electron.saveData('archivedTasks', newArchivedTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver für alle Gruppen mit archivierten Aufgaben
+      const affectedGroupIds = [...new Set(completedTasks.map(task => task.groupId))];
+      if (affectedGroupIds.length > 0) {
+        window.electron.getOBSSettings().then(obsSettings => {
+          if (obsSettings.enabled && affectedGroupIds.includes(obsSettings.streamGroup)) {
+            const groupTasks = remainingTasks.filter(task => task.groupId === obsSettings.streamGroup);
+            window.electron.updateWebServerTasks(groupTasks);
+          }
+        });
+      }
 
       return {
         tasks: remainingTasks,
@@ -296,6 +379,18 @@ export const useAppStore = create((set, get) => ({
       });
       
       window.electron.saveData('tasks', updatedTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver wenn nötig
+      const updatedTask = updatedTasks.find(task => task.id === taskId);
+      if (updatedTask) {
+        window.electron.getOBSSettings().then(obsSettings => {
+          if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
+            const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
+            window.electron.updateWebServerTasks(groupTasks);
+          }
+        });
+      }
+      
       return { tasks: updatedTasks };
     });
   },
@@ -313,6 +408,26 @@ export const useAppStore = create((set, get) => ({
       });
       
       window.electron.saveData('tasks', updatedTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver und benachrichtige über erledigte Unteraufgaben
+      const updatedTask = updatedTasks.find(task => task.id === taskId);
+      if (updatedTask) {
+        const updatedSubtask = updatedTask.subtasks.find(subtask => subtask.id === subtaskId);
+        
+        window.electron.getOBSSettings().then(obsSettings => {
+          if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
+            // Webserver aktualisieren
+            const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
+            window.electron.updateWebServerTasks(groupTasks);
+            
+            // Wenn Unteraufgabe als erledigt markiert wurde, benachrichtige OBS
+            if (updatedSubtask && updates.completed === true) {
+              window.electron.handleSubtaskCompleted(updatedTask.id, subtaskId, updatedTask.groupId);
+            }
+          }
+        });
+      }
+      
       return { tasks: updatedTasks };
     });
   },
@@ -330,6 +445,18 @@ export const useAppStore = create((set, get) => ({
       });
       
       window.electron.saveData('tasks', updatedTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver wenn nötig
+      const updatedTask = updatedTasks.find(task => task.id === taskId);
+      if (updatedTask) {
+        window.electron.getOBSSettings().then(obsSettings => {
+          if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
+            const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
+            window.electron.updateWebServerTasks(groupTasks);
+          }
+        });
+      }
+      
       return { tasks: updatedTasks };
     });
   },
@@ -348,6 +475,18 @@ export const useAppStore = create((set, get) => ({
       });
       
       window.electron.saveData('tasks', updatedTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver wenn nötig
+      const updatedTask = updatedTasks.find(task => task.id === taskId);
+      if (updatedTask) {
+        window.electron.getOBSSettings().then(obsSettings => {
+          if (obsSettings.enabled && obsSettings.streamGroup === updatedTask.groupId) {
+            const groupTasks = updatedTasks.filter(task => task.groupId === updatedTask.groupId);
+            window.electron.updateWebServerTasks(groupTasks);
+          }
+        });
+      }
+      
       return { tasks: updatedTasks };
     });
   },
@@ -476,6 +615,18 @@ export const useAppStore = create((set, get) => ({
       finalTasks = updateTaskOrders(finalTasks);
       
       window.electron.saveData('tasks', finalTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver für beide betroffenen Gruppen
+      window.electron.getOBSSettings().then(obsSettings => {
+        if (obsSettings.enabled) {
+          // Wenn Quell- oder Zielgruppe die OBS-Gruppe ist, aktualisiere den Webserver
+          if (obsSettings.streamGroup === sourceGroupId || obsSettings.streamGroup === destGroupId) {
+            const groupTasks = finalTasks.filter(task => task.groupId === obsSettings.streamGroup);
+            window.electron.updateWebServerTasks(groupTasks);
+          }
+        }
+      });
+      
       return { tasks: finalTasks };
     });
   },
@@ -518,6 +669,14 @@ export const useAppStore = create((set, get) => ({
       
       window.electron.saveData('tags', newTags);
       window.electron.saveData('tasks', updatedTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver für alle betroffenen Gruppen
+      window.electron.getOBSSettings().then(obsSettings => {
+        if (obsSettings.enabled) {
+          const groupTasks = updatedTasks.filter(task => task.groupId === obsSettings.streamGroup);
+          window.electron.updateWebServerTasks(groupTasks);
+        }
+      });
       
       return { 
         tags: newTags,
@@ -598,6 +757,14 @@ export const useAppStore = create((set, get) => ({
 
       window.electron.saveData('notes', newNotes);
       window.electron.saveData('tasks', newTasks);
+      
+      // OBS-Integration: Aktualisiere den Webserver, wenn die Zielgruppe für OBS ausgewählt ist
+      window.electron.getOBSSettings().then(obsSettings => {
+        if (obsSettings.enabled && obsSettings.streamGroup === groupId) {
+          const groupTasks = newTasks.filter(task => task.groupId === groupId);
+          window.electron.updateWebServerTasks(groupTasks);
+        }
+      });
 
       return {
         notes: newNotes,

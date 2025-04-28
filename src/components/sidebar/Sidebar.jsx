@@ -1,3 +1,4 @@
+// src/components/sidebar/Sidebar.jsx
 import React, { useState } from 'react';
 import { 
   FiHome, 
@@ -6,13 +7,14 @@ import {
   FiArchive, 
   FiEdit, 
   FiSearch,
-  FiX
+  FiX,
+  FiSettings
 } from 'react-icons/fi';
 import { useAppStore } from '../../store/appStore';
 import DailyStats from './DailyStats';
 import QuickActions from './QuickActions';
 
-function Sidebar() {
+function Sidebar({ setShowSettings }) {
   const { 
     groups, 
     view, 
@@ -210,6 +212,17 @@ function Sidebar() {
           )}
         </ul>
       </nav>
+
+      {/* Einstellungen-Button */}
+      <div className="p-2 border-t border-gray-700">
+        <button
+          className="flex items-center text-gray-400 hover:text-white w-full px-4 py-2"
+          onClick={() => setShowSettings(true)}
+        >
+          <FiSettings className="mr-2" />
+          <span>Einstellungen</span>
+        </button>
+      </div>
 
       {/* Shortcuts am unteren Rand */}
       <div className="p-2 mt-auto">

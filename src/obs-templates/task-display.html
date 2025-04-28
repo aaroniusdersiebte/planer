@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MiniPlaner Tasks</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: transparent;
+      color: white;
+      overflow: hidden;
+    }
+    
+    .container {
+      max-width: 100%;
+      padding: 15px;
+    }
+    
+    .task-header {
+      background-color: rgba(18, 18, 18, 0.8);
+      padding: 10px 15px;
+      border-radius: 8px 8px 0 0;
+      margin-bottom: 5px;
+      border-bottom: 2px solid #f97316;
+    }
+    
+    .group-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin: 0;
+      color: #f97316;
+    }
+    
+    .task-list {
+      list-style-type: none;
+      padding: 0;
+      margin: 0;
+      background-color: rgba(18, 18, 18, 0.7);
+      border-radius: 0 0 8px 8px;
+      padding: 10px;
+      min-height: 50px;
+    }
+    
+    .task-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      padding: 8px 12px;
+      background-color: rgba(30, 30, 30, 0.8);
+      border-radius: 6px;
+      transition: opacity 0.3s ease, transform 0.3s ease, background-color 0.3s ease;
+    }
+    
+    .task-item.new-item {
+      opacity: 0;
+      transform: translateY(10px);
+      animation: fadeSlideIn 0.5s ease forwards;
+      animation-delay: calc(var(--index) * 0.1s);
+    }
+    
+    .task-item:last-child {
+      margin-bottom: 0;
+    }
+    
+    .task-checkbox {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      margin-right: 12px;
+      border: 2px solid #666;
+      transition: all 0.3s ease;
+      flex-shrink: 0;
+    }
+    
+    .task-checkbox.checked {
+      border-color: #f97316;
+      background-color: #f97316;
+    }
+    
+    .task-checkbox.checked::after {
+      content: "✓";
+      color: white;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    
+    .task-title {
+      flex: 1;
+      font-size: 16px;
+      transition: all 0.3s ease;
+      word-break: break-word;
+    }
+    
+    .task-item.completed .task-title {
+      text-decoration: line-through;
+      opacity: 0.7;
+    }
+    
+    .error-container {
+      background-color: rgba(220, 38, 38, 0.8);
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+    
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100px;
+      background-color: rgba(18, 18, 18, 0.7);
+      border-radius: 8px;
+    }
+    
+    .spinner {
+      border: 4px solid rgba(255, 255, 255, 0.1);
+      border-left-color: #f97316;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+      margin-right: 10px;
+    }
+    
+    @keyframes fadeSlideIn {
+      0% {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .status-bar {
+      background-color: rgba(18, 18, 18, 0.7);
+      border-radius: 4px;
+      padding: 5px 10px;
+      margin-top: 10px;
+      font-size: 12px;
+      color: #aaa;
+      display: flex;
+      justify-content: space-between;
+      opacity: 0.8;
+    }
+    
+    .connection-status {
+      display: flex;
+      align-items: center;
+    }
+    
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 5px;
+    }
+    
+    .status-indicator.connected {
+      background-color: #22c55e;
+    }
+    
+    .status-indicator.disconnected {
+      background-color: #ef4444;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="content-area">
+      <!-- Hier wird der Inhalt dynamisch eingefügt -->
+      <div class="loading">
+        <div class="spinner"></div>
+        <span>Lade Aufgaben...</span>
+      </div>
+    </div>
+    
+    <div class="status-bar">
+      <div class="connection-status">
+        <div class="status-indicator disconnected" id="connection-indicator"></div>
+        <span id="connection-text">Nicht verbunden</span>
+      </div>
+      <div id="task-count">0 Aufgaben</div>
+    </div>
+  </div>
+
+  <script>
+    // Konfiguration
+    const CONFIG = {
+      refreshInterval: 5000,   // Aktualisierungsintervall in ms (auf 5 Sekunden erhöht)
+      maxRetries: 10,          // Maximale Anzahl Wiederholungsversuche
+      animateChanges: true     // Animiere Änderungen für sanftere Updates
+    };
+    
+    // Globale Variablen
+    let tasks = [];
+    let lastUpdateTime = 0;
+    let connectionStatus = false;
+    let retryCount = 0;
+    let intervalId = null;
+    let lastGroupName = '';
+    let hashChanged = false;
+    
+    // DOM-Elemente
+    const contentArea = document.getElementById('content-area');
+    const connectionIndicator = document.getElementById('connection-indicator');
+    const connectionText = document.getElementById('connection-text');
+    const taskCountEl = document.getElementById('task-count');
+    
+    // Hash-Funktion für Task-Array (zum Vergleich von Daten)
+    function getTasksHash(taskArray) {
+      return taskArray.map(t => `${t.id}:${t.completed}`).join('|');
+    }
+    
+    // Aufgabendaten laden
+    async function loadTasks() {
+      try {
+        console.log('Lade Aufgaben...');
+        
+        const response = await fetch('/api/tasks');
+        if (!response.ok) {
+          throw new Error(`HTTP Fehler: ${response.status}`);
+        }
+        
+        const loadedTasks = await response.json();
+        console.log(`Aufgaben geladen: ${loadedTasks.length}`);
+        
+        // Verbindungsstatus aktualisieren
+        updateConnectionStatus(true);
+        retryCount = 0;
+        
+        // Prüfen, ob sich Daten geändert haben
+        const currentHash = getTasksHash(tasks);
+        const newHash = getTasksHash(loadedTasks);
+        hashChanged = currentHash !== newHash;
+        
+        // Gruppennamen speichern, falls vorhanden
+        if (loadedTasks.length > 0 && loadedTasks[0].groupName) {
+          lastGroupName = loadedTasks[0].groupName;
+        }
+        
+        // Aufgaben nur rendern, wenn sich etwas geändert hat
+        // oder beim ersten Ladevorgang
+        if (hashChanged || tasks.length === 0) {
+          tasks = loadedTasks;
+          renderTasks(tasks);
+        }
+        
+        // Aktualisierungszeit speichern
+        lastUpdateTime = Date.now();
+        
+        return true;
+      } catch (error) {
+        console.error(`Fehler beim Laden der Aufgaben: ${error.message}`);
+        updateConnectionStatus(false);
+        
+        retryCount++;
+        if (retryCount > CONFIG.maxRetries) {
+          showError(`Maximale Anzahl an Versuchen erreicht (${CONFIG.maxRetries}). Bitte überprüfen Sie die Verbindung.`);
+          stopAutoRefresh();
+        }
+        
+        return false;
+      }
+    }
+    
+    // Verbindungsstatus aktualisieren
+    function updateConnectionStatus(connected) {
+      connectionStatus = connected;
+      
+      // Visuelles Feedback
+      if (connected) {
+        connectionIndicator.className = 'status-indicator connected';
+        connectionText.textContent = 'Verbunden';
+      } else {
+        connectionIndicator.className = 'status-indicator disconnected';
+        connectionText.textContent = 'Verbindungsfehler';
+      }
+    }
+    
+    // Fehlermeldung anzeigen
+    function showError(message) {
+      contentArea.innerHTML = `
+        <div class="error-container">
+          <strong>Fehler:</strong> ${message}
+        </div>
+      `;
+    }
+    
+    // Aufgaben rendern
+    function renderTasks(tasks) {
+      if (!tasks || tasks.length === 0) {
+        contentArea.innerHTML = `
+          <div class="task-header">
+            <h1 class="group-title">${lastGroupName || 'Aufgabenliste'}</h1>
+          </div>
+          <ul class="task-list">
+            <li class="task-item" style="--index:0">
+              <span class="task-title">Keine Aufgaben vorhanden</span>
+            </li>
+          </ul>
+        `;
+        taskCountEl.textContent = '0 Aufgaben';
+        return;
+      }
+      
+      // Gruppentitel bestimmen (nehmen die erste Aufgabe als Referenz)
+      const groupTitle = tasks[0].groupName || lastGroupName || 'Aufgabenliste';
+      lastGroupName = groupTitle; // Speichern für späteren Gebrauch
+      
+      // Aufgaben sortieren: nicht erledigte zuerst
+      const sortedTasks = [...tasks].sort((a, b) => {
+        if (a.completed !== b.completed) {
+          return a.completed ? 1 : -1;
+        }
+        return 0;
+      });
+      
+      // Prüfen, ob bereits eine task-list existiert
+      const existingList = document.querySelector('.task-list');
+      const existingHeader = document.querySelector('.task-header');
+      
+      if (existingList && existingHeader && CONFIG.animateChanges && hashChanged) {
+        // Update nur den Titel, wenn nötig
+        const titleEl = existingHeader.querySelector('.group-title');
+        if (titleEl.textContent !== groupTitle) {
+          titleEl.textContent = groupTitle;
+        }
+        
+        // Intelligentes Update der Liste
+        updateTaskList(existingList, sortedTasks);
+      } else {
+        // Komplette Neuerstellung der Listen-HTML
+        let html = `
+          <div class="task-header">
+            <h1 class="group-title">${groupTitle}</h1>
+          </div>
+          <ul class="task-list">
+        `;
+        
+        sortedTasks.forEach((task, index) => {
+          html += `
+            <li class="task-item new-item ${task.completed ? 'completed' : ''}" style="--index:${index}" data-task-id="${task.id}">
+              <div class="task-checkbox ${task.completed ? 'checked' : ''}"></div>
+              <span class="task-title">${escapeHtml(task.title)}</span>
+            </li>
+          `;
+        });
+        
+        html += `</ul>`;
+        
+        // In DOM einfügen
+        contentArea.innerHTML = html;
+      }
+      
+      // Anzahl anzeigen
+      const activeCount = sortedTasks.filter(t => !t.completed).length;
+      const totalCount = sortedTasks.length;
+      taskCountEl.textContent = `${activeCount} von ${totalCount} Aufgaben`;
+    }
+    
+    // Intelligentes Update der Aufgabenliste
+    function updateTaskList(listElement, tasks) {
+      // Bestehende Aufgaben-IDs ermitteln
+      const existingItems = Array.from(listElement.querySelectorAll('.task-item'));
+      const existingIds = new Set(existingItems.map(item => item.getAttribute('data-task-id')));
+      
+      // Neue Aufgaben-IDs ermitteln
+      const newIds = new Set(tasks.map(task => task.id));
+      
+      // 1. Entfernen verschwundener Aufgaben
+      for (const item of existingItems) {
+        const itemId = item.getAttribute('data-task-id');
+        if (!newIds.has(itemId)) {
+          // Sanft ausblenden und dann entfernen
+          item.style.opacity = '0';
+          item.style.transform = 'translateY(-10px)';
+          setTimeout(() => {
+            if (item.parentNode === listElement) {
+              listElement.removeChild(item);
+            }
+          }, 300);
+        }
+      }
+      
+      // 2. Aktualisieren oder Hinzufügen von Aufgaben
+      tasks.forEach((task, index) => {
+        const existingItem = listElement.querySelector(`.task-item[data-task-id="${task.id}"]`);
+        
+        if (existingItem) {
+          // Aktualisieren eines vorhandenen Items
+          const checkbox = existingItem.querySelector('.task-checkbox');
+          const titleEl = existingItem.querySelector('.task-title');
+          
+          // Status aktualisieren
+          if (task.completed) {
+            existingItem.classList.add('completed');
+            checkbox.classList.add('checked');
+          } else {
+            existingItem.classList.remove('completed');
+            checkbox.classList.remove('checked');
+          }
+          
+          // Titel aktualisieren, wenn geändert
+          if (titleEl.textContent !== task.title) {
+            titleEl.textContent = escapeHtml(task.title);
+          }
+          
+          // Position aktualisieren
+          existingItem.style.order = index;
+        } else {
+          // Neues Item hinzufügen
+          const newItem = document.createElement('li');
+          newItem.className = `task-item new-item ${task.completed ? 'completed' : ''}`;
+          newItem.setAttribute('data-task-id', task.id);
+          newItem.style.setProperty('--index', index);
+          newItem.innerHTML = `
+            <div class="task-checkbox ${task.completed ? 'checked' : ''}"></div>
+            <span class="task-title">${escapeHtml(task.title)}</span>
+          `;
+          
+          // Hinzufügen an der richtigen Position
+          const nextItem = Array.from(listElement.children).find(
+            child => parseInt(child.style.order || 0) > index
+          );
+          
+          if (nextItem) {
+            listElement.insertBefore(newItem, nextItem);
+          } else {
+            listElement.appendChild(newItem);
+          }
+        }
+      });
+    }
+    
+    // Hilfsfunktion zum Escapen von HTML
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    // Automatische Aktualisierung starten
+    function startAutoRefresh() {
+      if (intervalId) return;
+      
+      intervalId = setInterval(async () => {
+        const currentTime = Date.now();
+        const timeSinceLastUpdate = currentTime - lastUpdateTime;
+        
+        // Nur aktualisieren, wenn die letzte Aktualisierung länger her ist
+        if (timeSinceLastUpdate > CONFIG.refreshInterval / 2) {
+          await loadTasks();
+        }
+      }, CONFIG.refreshInterval);
+      
+      console.log(`Automatische Aktualisierung gestartet (${CONFIG.refreshInterval}ms)`);
+    }
+    
+    // Automatische Aktualisierung stoppen
+    function stopAutoRefresh() {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+        console.log('Automatische Aktualisierung gestoppt');
+      }
+    }
+    
+    // Initialisierung
+    document.addEventListener('DOMContentLoaded', async () => {
+      console.log('Anwendung initialisiert');
+      
+      // Initial Daten laden
+      await loadTasks();
+      
+      // Automatische Aktualisierung starten
+      startAutoRefresh();
+    });
+  </script>
+</body>
+</html>
